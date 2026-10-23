@@ -4,6 +4,7 @@ theme_pixel_ratio=1.5
 theme_icon_subdir='z1.5'
 
 [desktop/lipstick-jolla-home]
-# Hardware keyboard: this unit has German QWERTZ keycaps
-layout='de'
-variant='nodeadkeys'
+# Hardware keyboard: German QWERTZ keycaps, Fn legends on level 3
+# (usr/share/X11/xkb/symbols/fxtec_vndr/pro1x includes de(nodeadkeys)).
+layout='fxtec_vndr/pro1x'
+variant='de'

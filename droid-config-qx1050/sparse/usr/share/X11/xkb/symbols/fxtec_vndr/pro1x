@@ -1,0 +1,47 @@
+// F(x)tec Pro1-X hardware keyboard, German QWERTZ keycaps.
+// Level 3 (AltGr) carries the yellow Fn legends; on the SailfishOS kernel the two Fn keys
+// report KEY_RIGHTALT (sfos-dt.patch), as the yellow key did on the hybris Pro1 port
+// (xkeyboard-config-pro1, symbols/fxtec_vndr/pro1 by Nikita/NeKit, de layout by moWerk).
+// The legends follow the keyd layer moWerk reviewed on NixOS (hosts/mo-qwertz/keyd.conf).
+// Selected through dconf: /desktop/lipstick-jolla-home/layout = fxtec_vndr/pro1x, variant = de.
+
+default partial alphanumeric_keys
+xkb_symbols "de" {
+    include "de(nodeadkeys)"
+    name[Group1] = "F(x)tec Pro1X (German)";
+
+    // number row: Fn gives the shifted symbol, as printed on the caps
+    key <AE01> { [ 1, exclam,     exclam     ] };
+    key <AE02> { [ 2, quotedbl,   quotedbl   ] };
+    key <AE03> { [ 3, section,    section    ] };
+    key <AE04> { [ 4, dollar,     dollar     ] };
+    key <AE05> { [ 5, percent,    percent    ] };
+    key <AE06> { [ 6, ampersand,  ampersand  ] };
+    key <AE07> { [ 7, slash,      slash      ] };
+    key <AE08> { [ 8, parenleft,  parenleft  ] };
+    key <AE09> { [ 9, parenright, parenright ] };
+    key <AE10> { [ 0, equal,      equal      ] };
+    key <AE11> { [ ssharp, question, question ] };
+
+    key <AD01> { [ q, Q, at          ] };
+    key <AD02> { [ w, W, asciicircum ] };
+    key <AD03> { [ e, E, EuroSign    ] };
+    key <AD04> { [ r, R, degree      ] };
+    key <AD07> { [ u, U, braceleft   ] };
+    key <AD08> { [ i, I, bracketleft ] };
+    key <AD09> { [ o, O, bracketright ] };
+    key <AD10> { [ p, P, braceright  ] };
+    key <AD11> { [ udiaeresis, Udiaeresis, asciitilde ] };
+    key <AD12> { [ plus, asterisk, asterisk ] };
+
+    key <AC08> { [ k, K, ampersand  ] };
+    key <AC09> { [ l, L, apostrophe ] };
+    key <AC10> { [ odiaeresis, Odiaeresis, backslash  ] };
+    key <AC11> { [ adiaeresis, Adiaeresis, numbersign ] };
+
+    key <AB01> { [ y, Y, bar   ] };
+    key <AB06> { [ n, N, minus ] };
+    key <AB07> { [ m, M, mu    ] };
+
+    include "level3(ralt_switch)"
+};
