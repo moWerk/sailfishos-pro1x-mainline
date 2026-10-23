@@ -1,30 +1,48 @@
 #!/usr/bin/pulseaudio -nF
-# F(x)tec Pro1-X (qx1050), mainline. Stage A: the sound card through its UCM2 profile,
-# no ohm policy routing yet (that is the next step, after droid-config-pinephone's
-# arm_native_default.pa from sailfish-on-dontbeevil, which this file follows).
+# F(x)tec Pro1-X (qx1050), mainline. After droid-config-pinephone's arm_native_default.pa
+# (sailfish-on-dontbeevil): the sound card through its UCM2 profile, the Nemo volume and
+# stream modules, and ohm policy enforcement with /etc/pulse/xpolicy.conf.
 # Started by the user pulseaudio.service through /etc/sysconfig/pulseaudio.
 
 .nofail
 
+.fail
+
 .ifexists module-keepalive.so
 load-module module-keepalive
+.else
+load-module module-droid-keepalive
 .endif
 
 # UCM2 picks the verbs and devices from /usr/share/alsa/ucm2/Pro1X.
 load-module module-alsa-card device_id=Pro1X
+
+load-module module-meego-parameters cache=1 directory=/var/lib/nemo-pulseaudio-parameters use_voice=false
+load-module module-meego-mainvolume virtual_stream=true unmute_delay=600
+
+load-module module-stream-restore-nemo restore_device=no restore_volume=yes restore_muted=no route_table=/etc/pulse/x-maemo-route.table fallback_table=/etc/pulse/x-maemo-stream-restore.table use_voice=false
+
+load-module module-match table=/etc/pulse/x-maemo-match.table key=application.name
 
 load-module module-augment-properties
 
 load-module module-null-sink sink_name=sink.null rate=48000
 load-module module-null-source source_name=source.null rate=48000
 
+# Bluetooth audio waits for the wcn399x power-cycle issue; do not fail the server on it.
+.nofail
+load-module module-bluetooth-discover headset=droid
+.fail
+
+load-module module-policy-enforcement
+
+load-module module-role-ducking trigger_roles=notification,warning ducking_roles=x-maemo volume=-12dB duck_while_corked=true
+
 load-module module-native-protocol-unix
-.ifexists module-dbus-protocol.so
-load-module module-dbus-protocol
-.endif
 
 load-module module-always-sink
 load-module module-intended-roles
+
 # A short idle timeout cycles the amplifiers for every notification; keep it longer
 # than the PinePhone's 1 s until the pop on power-up is understood.
 load-module module-suspend-on-idle timeout=5
@@ -32,3 +50,11 @@ load-module module-suspend-on-idle timeout=5
 .ifexists module-systemd-login.so
 load-module module-systemd-login
 .endif
+
+.ifexists module-dbus-protocol.so
+load-module module-dbus-protocol
+.endif
+
+# Policy enforcement moves streams from the null devices to the routed ones.
+set-default-sink sink.null
+set-default-source source.null
