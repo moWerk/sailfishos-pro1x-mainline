@@ -5,8 +5,10 @@
 set -eu
 name=$1; host=${2:-mo@192.168.176.164}
 cd "$(dirname "$0")/.."
+# The modules live in a second output of the kernel derivation; ask nix for all outputs of
+# the kernel's deriver (several kernels can share one build log, so the log is no source).
 read -r kdir mdir <<EOF
-$(ssh -o BatchMode=yes "$host" "S=\$HOME/sailfish-build; K=\$(readlink \$S/out/$name); K=\$S/nix/\${K#/nix/}; M=\$(grep -oE '/nix/store/[a-z0-9]{32}-linux-aarch64-unknown-linux-gnu-7.1.0-modules' \$S/$name-build.log | sort -u | tail -1); M=\$S/nix/\${M#/nix/}; [ -f \$K/Image ] && [ -d \$M/lib/modules/7.1.0 ] && echo \$K \$M")
+$(ssh -o BatchMode=yes "$host" "S=\$HOME/sailfish-build; K=\$(readlink \$S/out/$name); M=\$(cd \$S && ./nixrun.sh \"nix-store -q --outputs \\\$(nix-store -q --deriver \$K)\" 2>/dev/null | grep -- '-modules\$' | head -1); K=\$S/nix/\${K#/nix/}; M=\$S/nix/\${M#/nix/}; [ -f \$K/Image ] && [ -d \$M/lib/modules/7.1.0 ] && echo \$K \$M")
 EOF
 [ -n "${kdir:-}" ] && [ -n "${mdir:-}" ] || { echo "kernel $name not found on $host"; exit 1; }
 mkdir -p build/$name
