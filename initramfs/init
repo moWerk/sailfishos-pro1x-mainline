@@ -34,7 +34,11 @@ fi
 
 [ -x /data/sfos/rootfs/sbin/init ] || [ -L /data/sfos/rootfs/sbin/init ] || fail "no /sfos/rootfs/sbin/init"
 mount --bind /data/sfos/rootfs /newroot || fail "bind /sfos/rootfs"
-umount -l /data
+# Keep the NixOS filesystem reachable from SailfishOS at /mnt/nixos (kernel installs,
+# sfos-boot-once with DATA=/mnt/nixos). A second mount of the device is refused later
+# because the bind already shows it mounted on /.
+mkdir -p /newroot/mnt/nixos
+mount --move /data /newroot/mnt/nixos || umount -l /data
 
 log "switching to SailfishOS"
 umount /sys /proc
