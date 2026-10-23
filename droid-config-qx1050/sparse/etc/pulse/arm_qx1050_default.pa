@@ -1,0 +1,34 @@
+#!/usr/bin/pulseaudio -nF
+# F(x)tec Pro1-X (qx1050), mainline. Stage A: the sound card through its UCM2 profile,
+# no ohm policy routing yet (that is the next step, after droid-config-pinephone's
+# arm_native_default.pa from sailfish-on-dontbeevil, which this file follows).
+# Started by the user pulseaudio.service through /etc/sysconfig/pulseaudio.
+
+.nofail
+
+.ifexists module-keepalive.so
+load-module module-keepalive
+.endif
+
+# UCM2 picks the verbs and devices from /usr/share/alsa/ucm2/Pro1X.
+load-module module-alsa-card device_id=Pro1X
+
+load-module module-augment-properties
+
+load-module module-null-sink sink_name=sink.null rate=48000
+load-module module-null-source source_name=source.null rate=48000
+
+load-module module-native-protocol-unix
+.ifexists module-dbus-protocol.so
+load-module module-dbus-protocol
+.endif
+
+load-module module-always-sink
+load-module module-intended-roles
+# A short idle timeout cycles the amplifiers for every notification; keep it longer
+# than the PinePhone's 1 s until the pop on power-up is understood.
+load-module module-suspend-on-idle timeout=5
+
+.ifexists module-systemd-login.so
+load-module module-systemd-login
+.endif

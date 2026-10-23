@@ -1,0 +1,1 @@
+CONFIG="-n --file=/etc/pulse/arm_qx1050_default.pa"
