@@ -1,0 +1,4 @@
+# Users that SailfishOS services expect from the Android-era adaptations
+# (droid-config-victara kickstart/post/99_groups); only those needed on mainline.
+getent group radio >/dev/null || groupadd -g 1001 radio
+getent passwd radio >/dev/null || useradd radio --uid 1001 -g radio -r -s /sbin/nologin

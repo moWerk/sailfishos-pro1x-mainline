@@ -1,0 +1,9 @@
+[desktop/sailfish/silica]
+# Same as the hybris Pro1-X port (droid-config-halium-qx1050: pixel_ratio 1.5)
+theme_pixel_ratio=1.5
+theme_icon_subdir='z1.5'
+
+[desktop/lipstick-jolla-home]
+# Hardware keyboard: this unit has German QWERTZ keycaps
+layout='de'
+variant='nodeadkeys'

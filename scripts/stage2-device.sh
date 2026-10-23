@@ -48,6 +48,7 @@ chroot $R systemctl enable rmtfs.service tqftpserv.service
 chroot $R systemctl mask rmtfs-dir.service
 
 # 3. Device configuration.
+for f in droid-config-qx1050/kickstart/post/*; do chroot $R /bin/sh < $f; done
 cp -a droid-config-qx1050/sparse/. $R/
 
 # 4. Bring-up access.

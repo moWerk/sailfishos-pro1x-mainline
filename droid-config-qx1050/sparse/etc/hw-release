@@ -1,0 +1,11 @@
+# This file is copied as hw-release (analogous to os-release)
+NAME="F(x)tec Pro1-X"
+ID=qx1050
+MER_HA_DEVICE=qx1050
+MER_HA_VENDOR=fxtec
+VERSION="0.1 (mainline memeline bring-up)"
+VERSION_ID=0.1
+PRETTY_NAME="F(x)tec Pro1-X 0.1 (mainline)"
+SAILFISH_BUILD=1
+SAILFISH_FLAVOUR=release
+HOME_URL="https://sailfishos.org/"
