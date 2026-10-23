@@ -1,0 +1,455 @@
+ERROR: CONFIG_INET_AH is invalid
+It is unset
+Allowed values : y
+Comment says: Required by IPSec
+
+WARNING: CONFIG_IP_NF_MATCH_ECN is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: connman: for iptables ecn match
+
+ERROR: CONFIG_QFMT_V2 is invalid
+It is unset
+Allowed values : y
+Comment says: Use this version of the interface for quotactl
+
+WARNING: CONFIG_IP_NF_ARP_MANGLE is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: Support mangling of ARP packets in netfilter
+
+WARNING: CONFIG_NETFILTER_XT_MATCH_HELPER is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: connman: for iptables helper match
+
+WARNING: CONFIG_CUSE is invalid
+Value is: m
+Allowed values : y, !, >=2.6
+Comment says: CUSE (optional): Required for software security modules support.
+
+WARNING: CONFIG_IP6_NF_MATCH_FRAG is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: connman: for ip6tables frag match
+
+WARNING: CONFIG_NETFILTER_XT_MATCH_CONNMARK is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: connman (optional): for routing and statistic support in sessions, http://git.kernel.org/cgit/network/connman/connman.git/commit/README?id=115cb9cbd3cdda00784e58a4ea12b42d128732b4
+
+ERROR: CONFIG_PPP_ASYNC is invalid
+It is unset
+Allowed values : y, m
+Comment says: Support for PPP over async devices. Not sure if required by pppd and pptp but enabled on old devices.
+
+ERROR: CONFIG_INET6_ESP is invalid
+It is unset
+Allowed values : y
+Comment says: Required by IPSec
+
+WARNING: CONFIG_NETFILTER_XT_MATCH_IPRANGE is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: connman: for iptables iprange match
+
+WARNING: CONFIG_SECURITY_SELINUX is invalid
+It is unset
+Allowed values : y, !
+Comment says: Most hybris adaptations must have SELinux builtin in kernel
+
+WARNING: CONFIG_ISO9660_FS is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: optional extra filesystem (CD-ROM)
+
+ERROR: CONFIG_IP6_NF_TARGET_REJECT is invalid
+Value is: m
+Allowed values : y
+Comment says: Support netfilter reject target in IPv6 netfilter. A basic need for iptables.
+
+ERROR: CONFIG_IP_NF_TARGET_REJECT is invalid
+Value is: m
+Allowed values : y
+Comment says: Support reject target in IPv4 netfilter, a quite basic requirement for iptables
+
+ERROR: CONFIG_IP_NF_NAT is invalid
+Value is: m
+Allowed values : y, >=3.17
+Comment says: Support NAT table in netfilter. Tethering requires this. Since 3.17 and before this as CONFIG_NF_NAT_IPV4
+
+WARNING: CONFIG_BT is invalid
+Value is: m
+Allowed values : y, !
+Comment says: Bluez (optional): Needed if bluez used as bluetooth stack
+
+WARNING: CONFIG_IP_NF_MATCH_AH is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: connman: for iptables ah match
+
+WARNING: CONFIG_ANDROID_LOW_MEMORY_KILLER is invalid
+It is unset
+Allowed values : y, !
+Comment says: Helping memory handling at least with Android runtime (tested on Jolla C)
+
+WARNING: CONFIG_UEVENT_HELPER_PATH is invalid
+It is unset
+Allowed values : "", !
+Comment says: should be empty, if you want to use systemd without initramfs. Also systemd: https://github.com/systemd/systemd/blob/v238/README
+
+ERROR: CONFIG_INET_ESP is invalid
+It is unset
+Allowed values : y
+Comment says: Required by IPSec
+
+WARNING: CONFIG_NETFILTER_XT_MATCH_RECENT is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: connman: for iptables recent match
+
+WARNING: CONFIG_NFS_V4_1 is invalid
+It is unset
+Allowed values : y, !
+Comment says: optional, for NFS support
+
+WARNING: CONFIG_NETFILTER_XT_MATCH_ESP is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: connmman: for iptables esp match
+
+WARNING: CONFIG_LBDAF is invalid
+It is unset
+Allowed values : y, !
+Comment says: ext4 filesystem requires this in order to support filesysetms with huge_file feature, which is enabled by default by mke2fs.ext4, not needed for 64bit architectures
+
+WARNING: CONFIG_BT_BNEP is invalid
+It is unset
+Allowed values : y, !
+Comment says: Bluez (optional): Needed if bluetooth networking is wanted, e.g. for bluetooth tethering
+
+WARNING: CONFIG_SECURITY_SELINUX_BOOTPARAM_VALUE is invalid
+It is unset
+Allowed values : 0, !
+Comment says: Alternative way to disable SELinux at boottime
+
+ERROR: CONFIG_IP6_NF_RAW is invalid
+It is unset
+Allowed values : y
+Comment says: Support RAW packet table in IPv6 netfilter. A basic need for iptables.
+
+WARNING: CONFIG_FW_LOADER_USER_HELPER_FALLBACK is invalid
+It is unset
+Allowed values : y, !
+Comment says: optional, for droid firmware load helper
+
+WARNING: CONFIG_BT_HCIUART is invalid
+Value is: m
+Allowed values : y, !
+Comment says: Bluez (optional): Needed if bluez used as bluetooth stack
+
+WARNING: CONFIG_BT_HIDP is invalid
+Value is: m
+Allowed values : y, !
+Comment says: Bluez (optional): Needed for HIDP (Human Interface Device Protocol) transport layer
+
+ERROR: CONFIG_NETFILTER_XT_MATCH_MULTIPORT is invalid
+Value is: m
+Allowed values : y
+Comment says: connman: for iptables multiple port match
+
+WARNING: CONFIG_WATCHDOG_NOWAYOUT is invalid
+It is unset
+Allowed values : y, !
+Comment says: If device uses watchdogs with dsme (https://github.com/sailfishos/dsme), this option should be enabled or watchdog does not protect the device in case dsme crashes.
+
+WARNING: CONFIG_BT_BNEP_MC_FILTER is invalid
+It is unset
+Allowed values : y, !
+Comment says: Bluez (optional): Needed if bluetooth networking is wanted, e.g. for bluetooth tethering
+
+ERROR: CONFIG_IP_NF_SECURITY is invalid
+It is unset
+Allowed values : y
+Comment says: Support security table in IPv4 netfilter
+
+WARNING: CONFIG_SCHEDSTATS is invalid
+It is unset
+Allowed values : y, !
+Comment says: systemd-bootchart (optional): http://cgit.freedesktop.org/systemd/systemd/commit/README?id=f1c24fea94e19cf2108abbeed1d36ded7102ab98
+
+WARNING: CONFIG_NETFILTER_XT_MATCH_DCCP is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: connman: for iptables dccp match
+
+WARNING: CONFIG_MEMCG_SWAP is invalid
+It is unset
+Allowed values : y, !, >=3.6
+Comment says: systemd (optional, but recommended): https://github.com/systemd/systemd/blob/v238/README, only valid if kernel version >= 3.6
+
+WARNING: CONFIG_CGROUP_NET_PRIO is invalid
+It is unset
+Allowed values : y, !, >=3.14
+Comment says: systemd (optional): https://github.com/systemd/systemd/blob/v238/README
+
+ERROR: CONFIG_QUOTA_NETLINK_INTERFACE is invalid
+It is unset
+Allowed values : y
+Comment says: For quota_nld service
+
+WARNING: CONFIG_IP_NF_MATCH_TTL is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: connman: for iptables ttl match
+
+WARNING: CONFIG_NET_DROP_MONITOR is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: Enable package drop monitoring
+
+WARNING: CONFIG_NETFILTER_XT_MATCH_NFACCT is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: connman (optional): for routing and statistic support in sessions, http://git.kernel.org/cgit/network/connman/connman.git/commit/README?id=41f37125887cb9208da2441e350e1e3324c17ee6
+
+WARNING: CONFIG_ECRYPT_FS is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: optional extra filesystem (ecryptfs)
+
+WARNING: CONFIG_NETFILTER_XT_MATCH_SCTP is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: connman: for iptables sctp match
+
+WARNING: CONFIG_IP_NF_TARGET_REDIRECT is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: Support redirect target in IPv4 netfilter, required for some masquerading scenarios
+
+WARNING: CONFIG_IP_NF_ARPTABLES is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: Support ARP tables in netfilter
+
+WARNING: CONFIG_F2FS_FS is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: optional extra filesystem (f2fs - a good SD filesystem)
+
+ERROR: CONFIG_NETFILTER_XT_MATCH_CONNTRACK is invalid
+Value is: m
+Allowed values : y
+Comment says: connman: for iptables conntrack match
+
+WARNING: CONFIG_NETFILTER_XT_CONNMARK is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: connman (optional): for routing and statistic support in sessions, http://git.kernel.org/cgit/network/connman/connman.git/commit/README?id=115cb9cbd3cdda00784e58a4ea12b42d128732b4
+
+ERROR: CONFIG_NET_L3_MASTER_DEV is invalid
+It is unset
+Allowed values : y, >=4.4
+Comment says: For l2tp/pptp
+
+ERROR: CONFIG_IP_NF_RAW is invalid
+It is unset
+Allowed values : y
+Comment says: Support raw table in IPv4 netfilter
+
+WARNING: CONFIG_F2FS_FS_SECURITY is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: required to mount f2fs volumes under SELinux
+
+WARNING: CONFIG_HIDRAW is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: optional: Support HID devices
+
+ERROR: CONFIG_PPPOE is invalid
+It is unset
+Allowed values : y, m
+Comment says: Support for PPP over Ethernet. Required by pppd and pptp over it
+
+WARNING: CONFIG_MEMCG_KMEM is invalid
+It is unset
+Allowed values : y, !, >=3.6
+Comment says: systemd (optional, but recommended): https://github.com/systemd/systemd/blob/v238/README, only valid if kernel version >= 3.6
+
+WARNING: CONFIG_BT_BNEP_PROTO_FILTER is invalid
+It is unset
+Allowed values : y, !
+Comment says: Bluez (optional): Needed if bluetooth networking is wanted, e.g. for bluetooth tethering
+
+WARNING: CONFIG_AUTOFS4_FS is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: systemd (optional): http://cgit.freedesktop.org/systemd/systemd/commit/README?id=713bc0cfa477ca1df8769041cb3dbc83c10eace2
+
+WARNING: CONFIG_SECURITY_YAMA is invalid
+It is unset
+Allowed values : y, !
+Comment says: optional, prevents user's processes from ptracing each other
+
+ERROR: CONFIG_NLS_UTF8 is invalid
+It is unset
+Allowed values : y
+Comment says: Ensure that we support UTF8 filenames.
+
+WARNING: CONFIG_IP_SCTP is invalid
+It is unset
+Allowed values : y, !, >=3.8
+Comment says: SCTP support on both IP families, experimental exists already from 2.5 upwards but android kernels may have broken support for it. Experimental status dropped on 3.8 and upwards.
+
+WARNING: CONFIG_NET_CLS_CGROUP is invalid
+It is unset
+Allowed values : y, !
+Comment says: systemd (optional): https://github.com/systemd/systemd/blob/v238/README
+
+WARNING: CONFIG_SECURITY_SELINUX_BOOTPARAM is invalid
+It is unset
+Allowed values : y, !
+Comment says: Up to hybris-16 it's recommended to have SELinux disabled at boottime via kernel cmdline: selinux=0 or SECURITY_SELINUX_BOOTPARAM_VALUE=0. For hybris-17 SELinux should be left enabled.
+
+WARNING: CONFIG_IP6_NF_MATCH_AH is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: connman: for ip6tables ah match
+
+ERROR: CONFIG_IP_NF_MANGLE is invalid
+Value is: m
+Allowed values : y
+Comment says: Support mangle table in IPV4 netfilter. Mangle table is required for IPv6 CVE-2019-14899
+
+ERROR: CONFIG_NF_LOG_IPV4 is invalid
+It is unset
+Allowed values : y, m, >=3.17
+Comment says: For netfilter IPv4 logging
+
+WARNING: CONFIG_CHECKPOINT_RESTORE is invalid
+It is unset
+Allowed values : y, !
+Comment says: rich-core-dumper (https://github.com/mer-tools/sp-rich-core/) needs this to collect all data for environment recreation.
+
+ERROR: CONFIG_INET_IPCOMP is invalid
+It is unset
+Allowed values : y, m
+Comment says: Support for IP Payload Compression Protocol (IPComp) (RFC3173), typically needed for IPsec.
+
+WARNING: CONFIG_NFS_V3_ACL is invalid
+It is unset
+Allowed values : y, !
+Comment says: optional, for NFS support
+
+WARNING: CONFIG_RTC_DRV_CMOS is invalid
+It is unset
+Allowed values : y, !
+Comment says: optional, but highly recommended, not available on arm64
+
+WARNING: CONFIG_CIFS is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: optional extra filesystem (CIFS - Windows net fs)
+
+WARNING: CONFIG_NETFILTER_XT_TARGET_CONNMARK is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: connman (optional): for routing and statistic support in sessions, http://git.kernel.org/cgit/network/connman/connman.git/commit/README?id=115cb9cbd3cdda00784e58a4ea12b42d128732b4
+
+ERROR: CONFIG_IP_NF_FILTER is invalid
+Value is: m
+Allowed values : y
+Comment says: Support packet filtering in IPv4 netfilter
+
+WARNING: CONFIG_NFS_ACL_SUPPORT is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: optional, for NFS support
+
+ERROR: CONFIG_L2TP_IP is invalid
+It is unset
+Allowed values : y, m
+Comment says: Support for L2TP-over-IP socket family. Enables L2TPIP socket family with which userspace L2TPv3 daemons may create L2TP/IP tunnel sockets when UDP encapsulation is not required
+
+WARNING: CONFIG_BTRFS_FS is invalid
+Value is: m
+Allowed values : y, !
+Comment says: optional extra filesystem (BTRFS)
+
+WARNING: CONFIG_UDF_FS is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: optional extra filesystem (DVD & portable USB)
+
+ERROR: CONFIG_PPP_FILTER is invalid
+It is unset
+Allowed values : y
+Comment says: Support for PPP to use pass-filter and active-filter options.
+
+WARNING: CONFIG_IP_NF_ARPFILTER is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: Support filtering arp packets in netfilter
+
+ERROR: CONFIG_L2TP_V3 is invalid
+It is unset
+Allowed values : y
+Comment says: Enable tunneling raw ethernet frames over L2TP, and to support L2TP v3 equipment.
+
+WARNING: CONFIG_NETFILTER_NETLINK_ACCT is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: connman (optional): for routing and statistic support in sessions, http://git.kernel.org/cgit/network/connman/connman.git/commit/README?id=41f37125887cb9208da2441e350e1e3324c17ee6
+
+ERROR: CONFIG_INET6_AH is invalid
+It is unset
+Allowed values : y
+Comment says: Required by IPSec
+
+WARNING: CONFIG_BT_RFCOMM is invalid
+It is unset
+Allowed values : y, !
+Comment says: Bluez (optional): Needed if bluez used as bluetooth stack
+
+ERROR: CONFIG_PPP_SYNC_TTY is invalid
+It is unset
+Allowed values : y, m
+Comment says: Support using PPP over synchronous high-speed devices. Required by pppd and pptp over it.
+
+WARNING: CONFIG_IP6_NF_MATCH_MH is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: connman: for ip6tables mh match
+
+WARNING: CONFIG_SCHED_DEBUG is invalid
+It is unset
+Allowed values : y, !
+Comment says: systemd-bootchart (optional): http://cgit.freedesktop.org/systemd/systemd/commit/README?id=f1c24fea94e19cf2108abbeed1d36ded7102ab98
+
+WARNING: CONFIG_BT_HCIVHCI is invalid
+It is unset
+Allowed values : y, !
+Comment says: Bluez (optional): Needed if bluebinder is used with bluez (Android 8+ based ports)
+
+ERROR: CONFIG_IP6_NF_MATCH_RPFILTER is invalid
+It is unset
+Allowed values : y
+Comment says: To be able to mitigate CVE-2019-14899 with ConnMan iptables rule
+
+ERROR: CONFIG_PPP_MULTILINK is invalid
+It is unset
+Allowed values : y
+Comment says: Support for PPP to fully utilize the bandwidth.
+
+ERROR: CONFIG_IP_NF_MATCH_RPFILTER is invalid
+It is unset
+Allowed values : y
+Comment says: Add to have both IPv4 and IPv6 RPFILTER matches set
+
+WARNING: CONFIG_NETFILTER_XT_MATCH_HASHLIMIT is invalid
+It is unset
+Allowed values : y, m, !
+Comment says: connman: for iptables hashlimit match
+

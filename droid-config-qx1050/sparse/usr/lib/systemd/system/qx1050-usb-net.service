@@ -1,0 +1,12 @@
+[Unit]
+Description=Pro1-X bring-up: IP and DHCP server on the USB gadget (usb0)
+DefaultDependencies=no
+After=systemd-udevd.service
+Before=sshd.socket sshd.service
+
+[Service]
+ExecStart=/usr/bin/droid/qx1050-usb-net.sh
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

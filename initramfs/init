@@ -1,0 +1,43 @@
+#!/bin/busybox sh
+# SailfishOS on mainline, Pro1-X: minimal initramfs.
+# The SFOS root is a directory on the NixOS ext4 (userdata, label "nixos"):
+#   /sfos/rootfs  -> bind-mounted as the new root.
+# One-shot boot: if /boot/extlinux/extlinux.nixos.conf exists, it is moved back to
+# extlinux.conf before SFOS starts, so the next (re)boot is NixOS again.
+# Any failure reboots, which then lands in NixOS.
+/bin/busybox --install -s /bin
+export PATH=/bin
+mkdir -p /proc /sys /dev /data /newroot
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+
+log() { echo "sfos-initramfs: $*" > /dev/kmsg; }
+fail() { log "FAILED: $*, rebooting in 10 s"; sleep 10; reboot -f; }
+
+dev=
+i=0
+while [ $i -lt 100 ]; do
+  dev=$(findfs LABEL=nixos 2>/dev/null) && break
+  i=$((i + 1)); sleep 0.1
+done
+[ -n "$dev" ] || fail "no filesystem with label nixos"
+log "data partition $dev"
+
+mount -t ext4 -o rw,noatime "$dev" /data || fail "mount $dev"
+
+b=/data/boot/extlinux
+if [ -f $b/extlinux.nixos.conf ]; then
+  mv -f $b/extlinux.nixos.conf $b/extlinux.conf && sync
+  log "next boot: NixOS (extlinux.conf restored)"
+fi
+
+[ -x /data/sfos/rootfs/sbin/init ] || [ -L /data/sfos/rootfs/sbin/init ] || fail "no /sfos/rootfs/sbin/init"
+mount --bind /data/sfos/rootfs /newroot || fail "bind /sfos/rootfs"
+umount -l /data
+
+log "switching to SailfishOS"
+umount /sys /proc
+mount --move /dev /newroot/dev 2>/dev/null || umount /dev
+exec switch_root /newroot /sbin/init
+fail "switch_root"
