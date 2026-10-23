@@ -16,9 +16,30 @@ echo "stage2: reinstalling: $names"
 [ -z "$names" ] || zypper --root $R -n --cache-dir /port/cache in -f --no-recommends $names
 chroot $R /sbin/ldconfig
 
+# 1b. What mic's kickstart %post does (taken from the nabu/pinephone kickstarts):
+# rpm arch, rebuilt rpm db, out of bootstrap mode, oneshot jobs, ssu release mode.
+echo -n "aarch64-meego-linux" > $R/etc/rpm/platform
+grep -q '^arch = aarch64' $R/etc/zypp/zypp.conf || echo "arch = aarch64" >> $R/etc/zypp/zypp.conf
+rm -f $R/var/lib/rpm/__db*
+chroot $R rpm --rebuilddb
+rm -f $R/.bootstrap
+chroot $R /bin/sh -c '
+  export LANG=en_US.UTF-8 LC_COLLATE=en_US.UTF-8
+  UID_MIN=$(grep "^UID_MIN" /etc/login.defs | tr -s " " | cut -d " " -f2)
+  DEVICEUSER=$(getent passwd $UID_MIN | sed "s/:.*//")
+  echo "stage2: device user: $DEVICEUSER"
+  if [ -x /usr/bin/oneshot ]; then
+    /usr/bin/oneshot --mic
+    [ -n "$DEVICEUSER" ] && su -c "/usr/bin/oneshot --mic" $DEVICEUSER
+  fi
+  ssu release 5.1.0.11
+  ssu mode 4
+'
+
 # 2. Kernel modules and firmware.
-tar -xf build/modules.tar -C $R/usr
-cp -a build/fw/lib/firmware $R/usr/lib/
+tar -xf build/modules.tar -C $R
+chmod -R u+w $R/lib/modules
+cp -a build/fw/lib/firmware $R/lib/
 chroot $R /sbin/depmod -a 7.1.0
 
 # 2b. Port packages built in the Platform SDK (port/packages): qrtr, rmtfs (read-only), tqftpserv.

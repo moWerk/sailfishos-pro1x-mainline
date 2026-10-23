@@ -15,7 +15,8 @@ mkdir /sfos/rootfs
 tar --numeric-owner --xattrs --xattrs-include='*' -xpf "$tarball" -C /sfos/rootfs
 
 # File capabilities were set inside a user namespace on the build host; set them again here.
-chroot /sfos/rootfs /usr/bin/rpm --setcaps -a 2>/dev/null || echo "warning: rpm --setcaps failed"
+# SFOS paths first (rpm runs sh inside the chroot), NixOS PATH after (for chroot itself).
+PATH=/usr/sbin:/usr/bin:/sbin:/bin:$PATH chroot /sfos/rootfs /usr/bin/rpm --setcaps -a || echo "warning: rpm --setcaps failed"
 
 # Wi-Fi: turn NixOS's NetworkManager keyfiles into connman provisioning files, on the
 # phone only (the credentials never leave it).

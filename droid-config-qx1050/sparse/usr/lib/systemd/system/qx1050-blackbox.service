@@ -1,0 +1,10 @@
+[Unit]
+Description=Pro1-X bring-up black box (state snapshots to /var/log/blackbox)
+DefaultDependencies=no
+After=local-fs.target
+
+[Service]
+ExecStart=/usr/bin/droid/qx1050-blackbox.sh
+
+[Install]
+WantedBy=sysinit.target
