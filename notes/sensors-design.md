@@ -43,17 +43,17 @@ the first bring-up sessions.
 4. mce then gets ALS and proximity through sensorfw as on every other device (double-tap
    wake and the kbd backlight ALS profile are already configured for it).
 
-## Why it was not built on 2026-10-24
+## Why it was not built on 2026-10-24 (and the correction)
 
 The SDK target image used for the rootfs (`localhost/sfos-target-aarch64:5.1.0.11`) has
-rpmbuild and qmake but no compiler (`gcc`, `g++`, `make` missing): the Sailfish SDK keeps
-the toolchain in its x86_64 "tooling" and enters the target through scratchbox2/sfdk, which
-is not set up on this host (the SDK-on-rootless-podman work is a separate, open item, see
-`~/Git/llm-rag/SailfishOS/sdk_on_rootless_podman.json`). The nix cross toolchain can build
-static C tools (used for `tools/ffrumble.c`) but not a Qt plugin against SailfishOS's
-sensorfw headers and ABI. So steps 1 to 3 need either the Platform SDK with the aarch64
-target (mb2 build of five small specs; the proper way, also what OBS would do) or a
-community OBS project (nemo:devel:hw:fxtec:qx1050 exists but is empty, see
+rpmbuild and qmake but no compiler: the Sailfish SDK keeps the toolchain in its x86_64
+"tooling" and enters the target through scratchbox2. The night session took that for a
+blocker. Correction (2026-10-24 afternoon): the Platform SDK with that tooling and the
+aarch64 target has been running on this host since 2026-10-04 in the rootless podman
+container `sfos-sdk-setup` (`~/sailfish/scripts/sfos-mb2-build.sh <source dir>`, see
+`~/Git/llm-rag/SailfishOS/sdk_on_rootless_podman.json`); it built mce then and the patched
+qtmultimedia for this port now. Steps 1 to 3 are buildable with it (five small specs via mb2;
+the same thing OBS would do, nemo:devel:hw:fxtec:qx1050 exists but is empty, see
 notes/research/research-packaging.md).
 
 Estimated effort once a build path exists: packaging and step 2 in a day, the adaptor in a

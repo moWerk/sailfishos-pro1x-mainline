@@ -1,0 +1,42 @@
+From 5bcb267fc7c87530506680f8f2c5d03c32311e03 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Sat, 24 Oct 2026 16:45:32 +0200
+Subject: [PATCH] camerabin: ignore source caps without a size (libcamerasrc),
+ fall back to camerabin's
+
+A source without a caps query handler answers with its pad template; the
+resolution and framerate consumers dereference width/height/framerate and
+crash (jolla-camera SIGSEGV in supportedResolutions, Pro1-X mainline port).
+
+LLMGD-0 A0
+---
+ .../gstreamer/camerabin/camerabinsession.cpp        | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/src/plugins/gstreamer/camerabin/camerabinsession.cpp b/src/plugins/gstreamer/camerabin/camerabinsession.cpp
+index cbf9feb4..d303e772 100644
+--- a/src/plugins/gstreamer/camerabin/camerabinsession.cpp
++++ b/src/plugins/gstreamer/camerabin/camerabinsession.cpp
+@@ -1298,6 +1298,19 @@ GstCaps *CameraBinSession::supportedCaps(QCamera::CaptureModes mode) const
+             supportedCaps = qt_gst_pad_get_caps(pad);
+             gst_object_unref(GST_OBJECT(pad));
+         }
++
++        // A source without a caps query handler (libcamerasrc) answers with its pad
++        // template, which carries no width/height/framerate; the callers below
++        // dereference those fields. Treat such caps as unknown and fall back.
++        if (supportedCaps) {
++            bool hasSize = false;
++            for (uint i = 0; i < gst_caps_get_size(supportedCaps) && !hasSize; ++i)
++                hasSize = gst_structure_has_field(gst_caps_get_structure(supportedCaps, i), "width");
++            if (!hasSize) {
++                gst_caps_unref(supportedCaps);
++                supportedCaps = 0;
++            }
++        }
+     }
+ 
+     // Otherwise, let the camerabin handle this.
+-- 
+2.56.0
+
