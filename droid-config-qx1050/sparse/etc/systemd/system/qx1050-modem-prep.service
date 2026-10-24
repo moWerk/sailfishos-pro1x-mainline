@@ -1,0 +1,12 @@
+[Unit]
+Description=Modem preparation: UIM provisioning session and rmnet links before ofono
+After=rmtfs.service tqftpserv.service
+Before=ofono.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/droid/qx1050-modem-prep.sh
+TimeoutStartSec=240
+
+[Install]
+WantedBy=multi-user.target
