@@ -1,0 +1,110 @@
+From a056e732d3ee2d4895df4d8af5199f2d933128ff Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Sat, 24 Oct 2026 17:18:26 +0200
+Subject: [PATCH] camerabin: enumerate libcamera cameras with
+ position/orientation, select by camera-name
+
+With libcamerasrc as the wrapper's inner source the /dev/video* scan lists every
+CAMSS node with an unknown position, so jolla-camera cannot switch cameras and
+libcamerasrc ignores the 'device' property. Enumerate through libcamera's
+GstDeviceProvider instead (camera id as device name, Location -> position,
+Rotation -> orientation, back cameras first) and set 'camera-name' on sources
+that have it.
+
+LLMGD-0 A0
+---
+ src/gsttools/qgstutils.cpp                    | 58 +++++++++++++++++++
+ .../gstreamer/camerabin/camerabinsession.cpp  |  8 ++-
+ 2 files changed, 64 insertions(+), 2 deletions(-)
+
+diff --git a/src/gsttools/qgstutils.cpp b/src/gsttools/qgstutils.cpp
+index 3512d168..0bbb951e 100644
+--- a/src/gsttools/qgstutils.cpp
++++ b/src/gsttools/qgstutils.cpp
+@@ -577,6 +577,64 @@ QVector<QGstUtils::CameraInfo> QGstUtils::enumerateCameras(GstElementFactory *fa
+             camerasCacheAgeTimer.restart();
+             return devices;
+         }
++
++        // A wrapper source whose inner element is libcamerasrc (selected through
++        // QT_GSTREAMER_CAMERABIN_VIDEOSRC): enumerate through libcamera's device
++        // provider instead of /dev/video*. The device name is libcamera's camera id,
++        // which libcamerasrc takes as "camera-name"; position and orientation come
++        // from the camera properties. Back cameras first so that index 0 is the
++        // default jolla-camera expects.
++        const QByteArray envVideoSource = qgetenv("QT_GSTREAMER_CAMERABIN_VIDEOSRC");
++        if (!envVideoSource.isEmpty() && !envVideoSource.contains('=')) {
++            if (GstElementFactory *inner = gst_element_factory_find(envVideoSource.constData())) {
++                const GType innerType = gst_element_factory_get_element_type(inner);
++                GObjectClass *innerClass = innerType ? static_cast<GObjectClass *>(g_type_class_ref(innerType)) : 0;
++                const bool byName = innerClass && g_object_class_find_property(innerClass, "camera-name");
++                if (innerClass)
++                    g_type_class_unref(innerClass);
++                gst_object_unref(inner);
++
++                GstDeviceProvider *provider = byName
++                        ? gst_device_provider_factory_get_by_name("libcameraprovider")
++                        : 0;
++                if (provider) {
++                    QVector<CameraInfo> front;
++                    GList *list = gst_device_provider_get_devices(provider);
++                    for (GList *l = list; l; l = l->next) {
++                        GstDevice *device = GST_DEVICE(l->data);
++                        gchar *displayName = gst_device_get_display_name(device);
++                        GstStructure *props = gst_device_get_properties(device);
++                        gint location = -1;
++                        gint rotation = 0;
++                        if (props) {
++                            gst_structure_get_int(props, "api.libcamera.Location", &location);
++                            gst_structure_get_int(props, "api.libcamera.Rotation", &rotation);
++                            gst_structure_free(props);
++                        }
++                        const CameraInfo info = {
++                                QString::fromUtf8(displayName),
++                                QString::fromUtf8(displayName),
++                                (720 - rotation) % 360,
++                                location == 0 ? QCamera::FrontFace
++                                              : location == 1 ? QCamera::BackFace
++                                                              : QCamera::UnspecifiedPosition,
++                                QByteArray("libcamera")
++                        };
++                        if (info.position == QCamera::FrontFace)
++                            front.append(info);
++                        else
++                            devices.append(info);
++                        g_free(displayName);
++                    }
++                    g_list_free_full(list, reinterpret_cast<GDestroyNotify>(gst_object_unref));
++                    gst_object_unref(provider);
++                    devices += front;
++
++                    camerasCacheAgeTimer.restart();
++                    return devices;
++                }
++            }
++        }
+     }
+ 
+ #ifdef USE_V4L
+diff --git a/src/plugins/gstreamer/camerabin/camerabinsession.cpp b/src/plugins/gstreamer/camerabin/camerabinsession.cpp
+index d303e772..d9646295 100644
+--- a/src/plugins/gstreamer/camerabin/camerabinsession.cpp
++++ b/src/plugins/gstreamer/camerabin/camerabinsession.cpp
+@@ -532,8 +532,12 @@ GstElement *CameraBinSession::buildCameraSource()
+                     g_object_set(G_OBJECT(m_cameraSrc), "video-source", m_videoSrc, NULL);
+             }
+ 
+-            if (m_videoSrc)
+-                g_object_set(G_OBJECT(m_videoSrc), "device", m_inputDevice.toUtf8().constData(), NULL);
++            if (m_videoSrc) {
++                // libcamerasrc selects its camera by id ("camera-name"), v4l2src by node ("device").
++                const char *deviceProperty = g_object_class_find_property(G_OBJECT_GET_CLASS(m_videoSrc), "camera-name")
++                        ? "camera-name" : "device";
++                g_object_set(G_OBJECT(m_videoSrc), deviceProperty, m_inputDevice.toUtf8().constData(), NULL);
++            }
+ 
+         } else if (g_object_class_find_property(G_OBJECT_GET_CLASS(m_cameraSrc), "camera-device")) {
+             g_object_set(G_OBJECT(m_cameraSrc), "camera-device", m_inputDevice.toInt(), NULL);
+-- 
+2.56.0
+
