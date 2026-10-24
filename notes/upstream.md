@@ -45,6 +45,10 @@ Each entry: what, where, evidence. None sent yet; the human author decides and s
 ## fxtec-pro1x-nixos (nyymi609)
 - Haptics driver defaults (gain 6, drive 59) are below what one feels through the case;
   gain 7 / drive 100 is a better default.
+- Venus (SM6115 AR50LT) is not enabled; the SFOS kernel backports the upstream node
+  (Dmitry Baryshkov's series, DT patches applied by Bjorn Andersson on 2026-07-08) as `device/kernel/patches/sfos-venus.patch`.
+  Once the base kernel carries that node, only the board `&venus` block remains, and it belongs
+  in the pro1x DT for NixOS too.
 - The panelgap patches are broken (seen earlier in this port); a LICENSE / Signed-off-by for
   the patch series would help any redistribution.
 
@@ -55,6 +59,33 @@ Each entry: what, where, evidence. None sent yet; the human author decides and s
   the missing fields (`g_value_init(&w, G_VALUE_TYPE(oldW))`, NULL → SIGSEGV, confirmed by a
   core dump of jolla-camera on the Pro1-X). `patches/qtmultimedia/0001-…` falls back to
   camerabin's supported-caps properties when the pad caps carry no size.
+- The fallback has no sizes either, so jolla-camera finds no resolutions and requests none;
+  the source then runs at its largest size in every mode (3840x2400 viewfinder, no 1080p
+  video). `0005-…` takes the sizes from the libcamera GstDevice caps. Cleaner upstream fix:
+  a caps query handler in libcamerasrc (below).
+- `QVideoSurfaceGstDelegate::render()` returns GST_FLOW_ERROR when the GUI thread misses its
+  300 ms deadline once, which stops the whole camerabin pipeline (frozen viewfinder after
+  about a second with a slow source). `0003-…` drops the late frame instead.
+- The session connects `notify::ready-for-capture` but never reads the initial value; a
+  source that is ready from the start and never toggles (wrappercamerabinsrc around
+  libcamerasrc) leaves the shutter disabled forever. `0004-…` reads it once after connecting.
+- Camera enumeration knows only /dev/video* (v4l2src); `0002-…` enumerates libcamera cameras
+  through `libcameraprovider` and selects them by `camera-name`.
+
+## jolla-camera / sailjail profile
+- The sandbox whitelists specific /usr/share dirs; /usr/share/libcamera (IPA modules'
+  tuning files) is hidden, the software ISP then fails to load and the viewfinder stays
+  black. Port workaround: `whitelist /usr/share/libcamera` in
+  `/etc/firejail/disable-common.local`. Upstream: add it to the Camera permission.
+- Video recording on a native (non-hybris) port needs encoders the hybris stack takes from
+  droidmedia: H.264 from Venus through v4l2h264enc, AAC from gst-libav's `avenc_aac`, which
+  is registered with rank none and therefore never chosen by encodebin (port sets
+  `GST_PLUGIN_FEATURE_RANK=avenc_aac:primary` in the session environment).
+
+## libcamera
+- `libcamerasrc` has no caps query handler on its src pad: before negotiation it answers
+  with the size-less template. Applications that ask the source for its sizes (Qt camerabin)
+  see nothing. The device provider already computes the right caps.
 
 ## sailfishos/sailjail, sailfishos/firejail
 - `fcopy` (private-etc copy) aborts the whole sandbox when a file's owner has no passwd entry

@@ -1,0 +1,113 @@
+From ec1c08c8e6c3dab7d738cecd8ed7f441ad0d71af Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Sat, 24 Oct 2026 22:07:46 +0200
+Subject: [PATCH] camerabin: take libcamerasrc sizes from the libcamera device
+ provider
+
+libcamerasrc answers caps queries with its size-less template, so jolla-camera
+saw no resolutions, requested none, and the source ran at its largest size in
+every mode. Use the matching GstDevice caps (fixed sizes plus the largest size
+of each range) with a 1-30 fps range, cached per camera. Release 7.
+
+LLMGD-0 A0
+---
+ .../gstreamer/camerabin/camerabinsession.cpp  | 69 ++++++++++++++++++-
+ 1 file changed, 68 insertions(+), 1 deletion(-)
+
+diff --git a/src/plugins/gstreamer/camerabin/camerabinsession.cpp b/src/plugins/gstreamer/camerabin/camerabinsession.cpp
+index 80c9106a..92391acf 100644
+--- a/src/plugins/gstreamer/camerabin/camerabinsession.cpp
++++ b/src/plugins/gstreamer/camerabin/camerabinsession.cpp
+@@ -66,6 +66,7 @@
+ 
+ #include <QtCore/qdebug.h>
+ #include <QCoreApplication>
++#include <QtCore/qmap.h>
+ #include <QtCore/qmetaobject.h>
+ #include <QtGui/qdesktopservices.h>
+ 
+@@ -1293,6 +1294,71 @@ static bool rateLessThan(const QPair<int,int> &r1, const QPair<int,int> &r2)
+      return r1.first*r2.second < r2.first*r1.second;
+ }
+ 
++// libcamerasrc only knows its formats once the camera is configured, so its pad answers
++// with the size-less template. libcamera's device provider lists the stream sizes of each
++// camera (one structure per size, plus one size range); keep the fixed sizes and the
++// largest size of each range, and add the frame rate range the callers expect.
++static GstCaps *libcameraDeviceCaps(GstElement *source)
++{
++    static QMap<QByteArray, QByteArray> cache;
++
++    gchar *name = 0;
++    g_object_get(G_OBJECT(source), "camera-name", &name, NULL);
++    const QByteArray cameraName(name);
++    g_free(name);
++    if (cameraName.isEmpty())
++        return 0;
++
++    if (!cache.contains(cameraName)) {
++        GstDeviceProvider *provider = gst_device_provider_factory_get_by_name("libcameraprovider");
++        if (!provider)
++            return 0;
++
++        GstCaps *result = gst_caps_new_empty();
++        GList *list = gst_device_provider_get_devices(provider);
++        for (GList *l = list; l; l = l->next) {
++            GstDevice *device = GST_DEVICE(l->data);
++            gchar *displayName = gst_device_get_display_name(device);
++            const bool match = cameraName == displayName;
++            g_free(displayName);
++            if (!match)
++                continue;
++
++            GstCaps *caps = gst_device_get_caps(device);
++            for (uint i = 0; caps && i < gst_caps_get_size(caps); ++i) {
++                GstStructure *s = gst_structure_copy(gst_caps_get_structure(caps, i));
++                const GValue *w = gst_structure_get_value(s, "width");
++                const GValue *h = gst_structure_get_value(s, "height");
++                if (w && h && GST_VALUE_HOLDS_INT_RANGE(w) && GST_VALUE_HOLDS_INT_RANGE(h)) {
++                    gst_structure_set(s,
++                                      "width", G_TYPE_INT, gst_value_get_int_range_max(w),
++                                      "height", G_TYPE_INT, gst_value_get_int_range_max(h),
++                                      NULL);
++                } else if (!w || !h || !G_VALUE_HOLDS_INT(w) || !G_VALUE_HOLDS_INT(h)) {
++                    gst_structure_free(s);
++                    continue;
++                }
++                if (!gst_structure_has_field(s, "framerate"))
++                    gst_structure_set(s, "framerate", GST_TYPE_FRACTION_RANGE, 1, 1, 30, 1, NULL);
++                gst_caps_append_structure(result, s);
++            }
++            if (caps)
++                gst_caps_unref(caps);
++        }
++        g_list_free_full(list, reinterpret_cast<GDestroyNotify>(gst_object_unref));
++        gst_object_unref(provider);
++
++        gchar *str = gst_caps_is_empty(result) ? 0 : gst_caps_to_string(result);
++        gst_caps_unref(result);
++        if (!str)
++            return 0;
++        cache.insert(cameraName, QByteArray(str));
++        g_free(str);
++    }
++
++    return gst_caps_from_string(cache.value(cameraName).constData());
++}
++
+ GstCaps *CameraBinSession::supportedCaps(QCamera::CaptureModes mode) const
+ {
+     GstCaps *supportedCaps = 0;
+@@ -1315,7 +1381,8 @@ GstCaps *CameraBinSession::supportedCaps(QCamera::CaptureModes mode) const
+                 hasSize = gst_structure_has_field(gst_caps_get_structure(supportedCaps, i), "width");
+             if (!hasSize) {
+                 gst_caps_unref(supportedCaps);
+-                supportedCaps = 0;
++                supportedCaps = g_object_class_find_property(G_OBJECT_GET_CLASS(m_videoSrc), "camera-name")
++                        ? libcameraDeviceCaps(m_videoSrc) : 0;
+             }
+         }
+     }
+-- 
+2.56.0
+

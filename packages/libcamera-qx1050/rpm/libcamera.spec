@@ -1,11 +1,16 @@
 Name:       libcamera
 Summary:    A library to support complex camera ISPs
 Version:    0.7.2
-Release:    1.qx1050
+Release:    2.qx1050
 License:    LGPLv2+
 URL:        https://libcamera.org
 Source:     %{name}-%{version}.tar.bz2
 Patch1:     0001-process-pidfd-clone3-compat-for-4.4-headers.patch
+# Pro1-X sensors, from nyymi609/fxtec-pro1x-nixos device/libcamera
+Patch2:     0002-imx582-sensor-helper-and-properties.patch
+Patch3:     0003-s5k4h7-sensor-helper-and-properties.patch
+Source1:    imx582.yaml
+Source2:    s5k4h7.yaml
 
 BuildRequires: boost-devel
 BuildRequires: cmake
@@ -74,6 +79,8 @@ export LDFLAGS="-Wl,--copy-dt-needed-entries"
 
 %install
 %meson_install
+install -Dm644 %{SOURCE1} %{buildroot}%{_datadir}/libcamera/ipa/simple/imx582.yaml
+install -Dm644 %{SOURCE2} %{buildroot}%{_datadir}/libcamera/ipa/simple/s5k4h7.yaml
 
 %post -p /sbin/ldconfig
 
