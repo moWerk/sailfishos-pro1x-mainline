@@ -1,2 +1,0 @@
-# Stable Wi-Fi MAC (see /usr/bin/droid/qx1050-wlan-mac.sh)
-ACTION=="add", SUBSYSTEM=="net", KERNEL=="wlan0", DRIVERS=="ath10k_snoc", RUN+="/usr/bin/droid/qx1050-wlan-mac.sh %k"
