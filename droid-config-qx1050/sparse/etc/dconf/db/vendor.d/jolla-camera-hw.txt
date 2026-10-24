@@ -1,0 +1,25 @@
+# F(x)tec Pro1-X on libcamera: IMX582 rear (3992x3000 native in libcamera 0.4), S5K4H7 front.
+# Resolutions follow jolla-camera's key names (see droid-config-victara jolla-camera-hw.txt).
+[apps/jolla-camera/primary/image]
+imageResolution='3992x3000'
+viewfinderResolution='1280x960'
+viewfinderResolution_4_3='1280x960'
+viewfinderResolution_16_9='1280x720'
+
+[apps/jolla-camera/primary/video]
+videoResolution='1920x1080'
+viewfinderResolution='1280x720'
+viewfinderResolution_4_3='1280x960'
+viewfinderResolution_16_9='1280x720'
+
+[apps/jolla-camera/secondary/image]
+imageResolution='3264x2448'
+viewfinderResolution='1280x960'
+viewfinderResolution_4_3='1280x960'
+viewfinderResolution_16_9='1280x720'
+
+[apps/jolla-camera/secondary/video]
+videoResolution='1280x720'
+viewfinderResolution='1280x720'
+viewfinderResolution_4_3='1280x960'
+viewfinderResolution_16_9='1280x720'
