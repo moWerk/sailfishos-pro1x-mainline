@@ -1,0 +1,43 @@
+--- a/src/libcamera/process.cpp
++++ b/src/libcamera/process.cpp
+@@ -23,6 +23,40 @@
+ #include <linux/sched.h>
+ #include <linux/wait.h> /* glibc only provides `P_PIDFD` in `sys/wait.h` since 2.36 */
+ 
++/*
++ * SailfishOS 5.1 builds against 4.4 kernel headers (linux-glibc-devel); the
++ * running kernel is far newer. Provide the pidfd/clone3 definitions missing
++ * from those headers (asm-generic numbers, aarch64 uses them).
++ */
++#ifndef CLONE_PIDFD
++#define CLONE_PIDFD 0x00001000
++#endif
++#ifndef P_PIDFD
++#define P_PIDFD 3
++#endif
++#ifndef SYS_pidfd_send_signal
++#define SYS_pidfd_send_signal 424
++#endif
++#ifndef SYS_clone3
++#define SYS_clone3 435
++#endif
++#ifndef CLONE_ARGS_SIZE_VER0
++struct clone_args {
++	__aligned_u64 flags;
++	__aligned_u64 pidfd;
++	__aligned_u64 child_tid;
++	__aligned_u64 parent_tid;
++	__aligned_u64 exit_signal;
++	__aligned_u64 stack;
++	__aligned_u64 stack_size;
++	__aligned_u64 tls;
++	__aligned_u64 set_tid;
++	__aligned_u64 set_tid_size;
++	__aligned_u64 cgroup;
++};
++#define CLONE_ARGS_SIZE_VER0 64
++#endif
++
+ #include <libcamera/base/event_notifier.h>
+ #include <libcamera/base/log.h>
+ #include <libcamera/base/utils.h>

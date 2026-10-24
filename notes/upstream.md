@@ -48,6 +48,14 @@ Each entry: what, where, evidence. None sent yet; the human author decides and s
 - The panelgap patches are broken (seen earlier in this port); a LICENSE / Signed-off-by for
   the patch series would help any redistribution.
 
+## sailfishos/qtmultimedia (mer-5.6; also mlehtima's v4l branch used by native-common)
+- `CameraBinSession::supportedCaps()` returns the inner source's pad caps unchecked; with a
+  source that has no caps query handler (libcamerasrc 0.4) that is the pad template without
+  width/height/framerate, and `supportedResolutions()`/`supportedFrameRates()` dereference
+  the missing fields (`g_value_init(&w, G_VALUE_TYPE(oldW))`, NULL → SIGSEGV, confirmed by a
+  core dump of jolla-camera on the Pro1-X). `patches/qtmultimedia/0001-…` falls back to
+  camerabin's supported-caps properties when the pad caps carry no size.
+
 ## sailfishos/sailjail, sailfishos/firejail
 - `fcopy` (private-etc copy) aborts the whole sandbox when a file's owner has no passwd entry
   ("Error fcopy: getpwuid /etc/pulse", "check: getpwuid: Success"); the booster then dies in a

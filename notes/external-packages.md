@@ -17,6 +17,17 @@ and https://repo.sailfishos.org/obs/nemo:/devel:/hw:/native-common/sailfish_late
 (the listing needs a browser User-Agent; the files download plainly). The native-common
 `qt5-qtmultimedia-*-5.6.2+v4l` fork was already pulled by stage 1 through repo priority.
 
+## Built here with the mb2 engine (sfos-sdk-setup container, see README "How a session works")
+
+| Package | Source | Why |
+|---|---|---|
+| qt5-qtmultimedia 5.6.2+v4l.20261024000000.qx1050 (all installed subpackages) | mlehtima/qtmultimedia branch v4l at c98eb6d0 + `patches/qtmultimedia/0001-…` | camerabin plugin crash with libcamerasrc (null size in `supportedResolutions`) |
+| libcamera 0.7.2-1.qx1050 (+tools) | upstream v0.7.2, packaging from mlehtima/libcamera (native-common), qcam/lc-compliance/tests off | `PipelineHandler::stop()` assertion of 0.4.0 on camera unload (software-ISP stop fixes landed in 0.5.0, request completion on stop in 0.6.0) |
+
+The first qtmultimedia build used Version `…+v4l.20261024.qx1050`, which rpm sorts *below*
+native-common's `…+v4l.20230905210651…` (segments compare numerically); installed with
+`--oldpackage`, the tree now carries the 14-digit stamp.
+
 ## Removed on purpose
 
 - `nemo-qtmultimedia-plugins-gstvideotexturebackend` (rpm -e --nodeps): the hybris QML video
