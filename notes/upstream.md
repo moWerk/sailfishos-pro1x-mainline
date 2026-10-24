@@ -47,3 +47,10 @@ Each entry: what, where, evidence. None sent yet; the human author decides and s
   gain 7 / drive 100 is a better default.
 - The panelgap patches are broken (seen earlier in this port); a LICENSE / Signed-off-by for
   the patch series would help any redistribution.
+
+## Linux (camera, found 2026-10-24)
+- S5K4H7 (nyymi609's driver): the probe sometimes fails with "Error reading reg 0x0000: -110"
+  (I2C timeout) at boot and succeeds on a later bind: power-up/settle timing in the driver.
+  CAMSS's async notifier then registers no camera at all until every sensor is bound.
+- libcamera 0.4 `libcamerasrc`: aborts in the CameraManager thread at EOS/teardown with
+  gst-launch (identity eos-after); frames are delivered before that.
