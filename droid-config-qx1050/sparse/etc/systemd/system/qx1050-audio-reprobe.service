@@ -1,0 +1,13 @@
+[Unit]
+Description=Re-register the sound card once (first probe can be silent)
+DefaultDependencies=no
+After=systemd-udevd.service systemd-modules-load.service
+Before=systemd-user-sessions.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/droid/qx1050-audio-reprobe.sh
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
