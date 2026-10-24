@@ -1,4 +1,7 @@
 [Unit]
+# NOT enabled by default: the first boot with it enabled (2026-10-24 04:20) ended in
+# Qualcomm download mode (USB 05c6:900e), i.e. a hard crash + watchdog. Suspect: binding the
+# sensor while CAMSS is still probing. Run by hand (systemctl start) until that is understood.
 Description=Retry the front camera sensor probe (CAMSS needs every sensor bound)
 After=systemd-udev-settle.service
 Before=systemd-user-sessions.service
