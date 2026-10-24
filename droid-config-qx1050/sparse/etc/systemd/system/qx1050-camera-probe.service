@@ -1,0 +1,12 @@
+[Unit]
+Description=Retry the front camera sensor probe (CAMSS needs every sensor bound)
+After=systemd-udev-settle.service
+Before=systemd-user-sessions.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/droid/qx1050-camera-probe.sh
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

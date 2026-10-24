@@ -1,0 +1,5 @@
+# libcamera's software-ISP pipeline (CAMSS on SM6115) allocates frame buffers from the
+# system dma-buf heap; without access the user session sees no cameras at all.
+# (fxtec-pro1x-nixos modules/hardware.nix does the same for Phosh.)
+SUBSYSTEM=="dma_heap", KERNEL=="system", GROUP="video", MODE="0660"
+KERNEL=="udmabuf", GROUP="video", MODE="0660"

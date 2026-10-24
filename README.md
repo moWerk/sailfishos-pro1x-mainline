@@ -27,7 +27,7 @@ experience, not merged as is. Every decision that was taken is written down here
 | Keyboard slide, backlight | mce drives both; DT reports the slide the way mce reads it | `sparse/etc/mce/`, `sfos-dt.patch` in the flake |
 | Bluetooth | works when enabled from boot; dead after a power-down (kernel) | |
 | Modem | ofono 2.12 (qrtrqmi) from the PinePhone repo: SIM, LTE registration, voice/SMS interfaces present. Data open (APN provisioning duplicates, MUX bind) | `sparse/usr/bin/droid/qx1050-modem-prep.sh`, `sparse/var/lib/environment/ofono/` |
-| Camera | kernel side complete (CAMSS, IMX582, S5K4H7); libcamera 0.4 from native-common installed, not yet wired into jolla-camera | |
+| Camera | libcamera 0.4 (native-common) captures from both sensors; jolla-camera runs on `libcamerasrc` with Qt's own viewfinder renderer (hybris video texture backend removed), on-screen check pending; front sensor probe retried at boot | `sparse/var/lib/environment/nemo/70-qx1050-camera.conf`, `qx1050-camera-probe.service`, `71-qx1050-camera.rules` |
 | Sensors | none: SM6115 sensors live on the ADSP (SSC); needs hexagonrpcd + libssc and a sensorfw adaptor that does not exist | `notes/research/research-sensors-camera.md` |
 | SD card | not detected (kernel/DT) | |
 | Lock code | impossible without an encrypted home | |
