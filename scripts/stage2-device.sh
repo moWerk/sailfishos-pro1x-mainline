@@ -37,9 +37,11 @@ chroot $R /bin/sh -c '
 '
 
 # 2. Kernel modules and firmware.
-tar -xf build/modules.tar -C $R
+# Everything copied in must end up root-owned: a file whose owner has no passwd entry on the
+# device makes firejail's fcopy abort, and with it every sandboxed app (camera, browser).
+tar --no-same-owner -xf build/modules.tar -C $R
 chmod -R u+w $R/lib/modules
-cp -a build/fw/lib/firmware $R/lib/
+cp -a --no-preserve=ownership build/fw/lib/firmware $R/lib/
 chroot $R /sbin/depmod -a 7.1.0
 
 # 2b. Port packages built in the Platform SDK (port/packages): qrtr, rmtfs (read-only), tqftpserv.
@@ -49,7 +51,7 @@ chroot $R systemctl mask rmtfs-dir.service
 
 # 3. Device configuration.
 for f in droid-config-qx1050/kickstart/post/*; do chroot $R /bin/sh < $f; done
-cp -a droid-config-qx1050/sparse/. $R/
+cp -a --no-preserve=ownership droid-config-qx1050/sparse/. $R/
 
 # 4. Bring-up access.
 mkdir -p $R/root/.ssh

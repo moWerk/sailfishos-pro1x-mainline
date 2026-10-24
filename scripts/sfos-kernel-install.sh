@@ -14,7 +14,9 @@ install -m 644 "$src/sm6115-fxtec-pro1x.dtb" /mnt/nixos/boot/sfos/sm6115-fxtec-p
 rm -rf /lib/modules/7.1.0.prev
 [ -d /lib/modules/7.1.0 ] && mv /lib/modules/7.1.0 /lib/modules/7.1.0.prev
 mkdir -p /lib/modules/7.1.0
-tar -C /lib/modules/7.1.0 -xf "$src/modules.tar" --strip-components=3 2>/dev/null || tar -C /lib/modules/7.1.0 -xf "$src/modules.tar"
+# --no-same-owner: the tarball carries the build host's uid (no passwd entry here; firejail's
+# fcopy aborts on such files and every sandboxed app fails to start).
+tar --no-same-owner -C /lib/modules/7.1.0 -xf "$src/modules.tar" --strip-components=3 2>/dev/null || tar --no-same-owner -C /lib/modules/7.1.0 -xf "$src/modules.tar"
 [ -f /lib/modules/7.1.0/modules.dep ] || depmod -b / 7.1.0
 ls /lib/modules/7.1.0 | head -3
 DATA=/mnt/nixos sh "$(dirname "$0")/sfos-boot-once.sh"

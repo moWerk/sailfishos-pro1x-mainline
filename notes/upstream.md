@@ -48,6 +48,14 @@ Each entry: what, where, evidence. None sent yet; the human author decides and s
 - The panelgap patches are broken (seen earlier in this port); a LICENSE / Signed-off-by for
   the patch series would help any redistribution.
 
+## sailfishos/sailjail, sailfishos/firejail
+- `fcopy` (private-etc copy) aborts the whole sandbox when a file's owner has no passwd entry
+  ("Error fcopy: getpwuid /etc/pulse", "check: getpwuid: Success"); the booster then dies in a
+  restart loop and the UI only says "application specific booster is not available". A stray
+  uid in /etc (a config package built with wrong ownership, a file copied by hand) takes
+  Camera and Browser down with no pointer to the cause. Proposal: copy the file root-owned and
+  warn, or at least name the file and the uid in the error.
+
 ## Linux (camera, found 2026-10-24)
 - S5K4H7 (nyymi609's driver): the probe sometimes fails with "Error reading reg 0x0000: -110"
   (I2C timeout) at boot and succeeds on a later bind: power-up/settle timing in the driver.
