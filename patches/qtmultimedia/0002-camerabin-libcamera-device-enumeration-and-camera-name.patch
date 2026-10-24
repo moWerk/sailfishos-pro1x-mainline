@@ -1,4 +1,4 @@
-From a056e732d3ee2d4895df4d8af5199f2d933128ff Mon Sep 17 00:00:00 2001
+From 0edc4d67734476cad44bbd8ef7caa0058cf10eeb Mon Sep 17 00:00:00 2001
 From: moWerk <mo@mowerk.net>
 Date: Sat, 24 Oct 2026 17:18:26 +0200
 Subject: [PATCH] camerabin: enumerate libcamera cameras with
@@ -13,15 +13,15 @@ that have it.
 
 LLMGD-0 A0
 ---
- src/gsttools/qgstutils.cpp                    | 58 +++++++++++++++++++
+ src/gsttools/qgstutils.cpp                    | 69 +++++++++++++++++++
  .../gstreamer/camerabin/camerabinsession.cpp  |  8 ++-
- 2 files changed, 64 insertions(+), 2 deletions(-)
+ 2 files changed, 75 insertions(+), 2 deletions(-)
 
 diff --git a/src/gsttools/qgstutils.cpp b/src/gsttools/qgstutils.cpp
-index 3512d168..0bbb951e 100644
+index 3512d168..48d20ca4 100644
 --- a/src/gsttools/qgstutils.cpp
 +++ b/src/gsttools/qgstutils.cpp
-@@ -577,6 +577,64 @@ QVector<QGstUtils::CameraInfo> QGstUtils::enumerateCameras(GstElementFactory *fa
+@@ -577,6 +577,75 @@ QVector<QGstUtils::CameraInfo> QGstUtils::enumerateCameras(GstElementFactory *fa
              camerasCacheAgeTimer.restart();
              return devices;
          }
@@ -35,12 +35,17 @@ index 3512d168..0bbb951e 100644
 +        const QByteArray envVideoSource = qgetenv("QT_GSTREAMER_CAMERABIN_VIDEOSRC");
 +        if (!envVideoSource.isEmpty() && !envVideoSource.contains('=')) {
 +            if (GstElementFactory *inner = gst_element_factory_find(envVideoSource.constData())) {
-+                const GType innerType = gst_element_factory_get_element_type(inner);
++                // the registry hands out an unloaded stub: no GType until the plugin is loaded
++                GstPluginFeature *loaded = gst_plugin_feature_load(GST_PLUGIN_FEATURE(inner));
++                gst_object_unref(inner);
++                inner = loaded ? GST_ELEMENT_FACTORY(loaded) : 0;
++                const GType innerType = inner ? gst_element_factory_get_element_type(inner) : 0;
 +                GObjectClass *innerClass = innerType ? static_cast<GObjectClass *>(g_type_class_ref(innerType)) : 0;
 +                const bool byName = innerClass && g_object_class_find_property(innerClass, "camera-name");
 +                if (innerClass)
 +                    g_type_class_unref(innerClass);
-+                gst_object_unref(inner);
++                if (inner)
++                    gst_object_unref(inner);
 +
 +                GstDeviceProvider *provider = byName
 +                        ? gst_device_provider_factory_get_by_name("libcameraprovider")
@@ -55,7 +60,13 @@ index 3512d168..0bbb951e 100644
 +                        gint location = -1;
 +                        gint rotation = 0;
 +                        if (props) {
-+                            gst_structure_get_int(props, "api.libcamera.Location", &location);
++                            // enum properties are strings ("CameraLocationFront"), older
++                            // libcamera releases stored the plain integer
++                            if (const gchar *loc = gst_structure_get_string(props, "api.libcamera.Location"))
++                                location = !g_strcmp0(loc, "CameraLocationFront") ? 0
++                                         : !g_strcmp0(loc, "CameraLocationBack") ? 1 : 2;
++                            else
++                                gst_structure_get_int(props, "api.libcamera.Location", &location);
 +                            gst_structure_get_int(props, "api.libcamera.Rotation", &rotation);
 +                            gst_structure_free(props);
 +                        }

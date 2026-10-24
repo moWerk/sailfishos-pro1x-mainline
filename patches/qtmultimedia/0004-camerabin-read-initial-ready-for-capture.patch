@@ -1,0 +1,34 @@
+From 0696b4fa64b9d015adacfb064e1417f759c036b9 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Sat, 24 Oct 2026 20:06:50 +0200
+Subject: [PATCH] camerabin: read the camera source's initial ready-for-capture
+
+Only notify::ready-for-capture updated the session, so a source that is ready
+from the start and never toggles (wrappercamerabinsrc + libcamerasrc) left
+capture disabled forever: jolla-camera's shutter did nothing and recording
+produced no file. Release 6.
+
+LLMGD-0 A0
+---
+ src/plugins/gstreamer/camerabin/camerabinsession.cpp | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/src/plugins/gstreamer/camerabin/camerabinsession.cpp b/src/plugins/gstreamer/camerabin/camerabinsession.cpp
+index d9646295..80c9106a 100644
+--- a/src/plugins/gstreamer/camerabin/camerabinsession.cpp
++++ b/src/plugins/gstreamer/camerabin/camerabinsession.cpp
+@@ -547,7 +547,10 @@ GstElement *CameraBinSession::buildCameraSource()
+     if (m_cameraSrc != camSrc) {
+         g_object_set(G_OBJECT(m_camerabin), CAMERA_SOURCE_PROPERTY, m_cameraSrc, NULL);
+         g_signal_connect(G_OBJECT(m_cameraSrc), "notify::ready-for-capture", G_CALLBACK(updateReadyForCapture), this);
+-
++        // Take the initial value too: a source that is ready from the start and never
++        // toggles (wrappercamerabinsrc around libcamerasrc) emits no notify, and capture
++        // would stay disabled.
++        updateReadyForCapture(G_OBJECT(m_cameraSrc), 0, this);
+     }
+ 
+     if (camSrc)
+-- 
+2.56.0
+

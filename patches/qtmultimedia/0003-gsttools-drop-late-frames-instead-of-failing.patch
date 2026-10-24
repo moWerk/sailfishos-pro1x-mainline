@@ -1,0 +1,38 @@
+From cdb312829b4b5690c7f0767a992e812ecdb7a8a8 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Sat, 24 Oct 2026 18:59:54 +0200
+Subject: [PATCH] gsttools: drop a frame the GUI thread misses instead of
+ failing the stream
+
+QVideoSurfaceGstDelegate::render() waits 300 ms for the GUI thread to present a
+frame and returned GST_FLOW_ERROR on timeout, which stops the source with
+'Internal data stream error'. Large software-rendered viewfinder frames
+(libcamerasrc, 3840x2400 XRGB) miss that window now and then and froze
+jolla-camera's viewfinder after a second. Treat the timeout as a dropped frame.
+
+LLMGD-0 A0
+---
+ src/gsttools/qgstvideorenderersink.cpp | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/src/gsttools/qgstvideorenderersink.cpp b/src/gsttools/qgstvideorenderersink.cpp
+index 31ac94e8..6b17280a 100644
+--- a/src/gsttools/qgstvideorenderersink.cpp
++++ b/src/gsttools/qgstvideorenderersink.cpp
+@@ -240,9 +240,12 @@ GstFlowReturn QVideoSurfaceGstDelegate::render(GstBuffer *buffer)
+     m_renderReturn = GST_FLOW_OK;
+     m_renderBuffer = buffer;
+ 
++    // A frame the GUI thread could not take within 300 ms is dropped, not fatal: with
++    // large software-rendered frames (libcamerasrc viewfinder) one slow frame used to end
++    // the whole stream with "Internal data stream error".
+     GstFlowReturn flowReturn = waitForAsyncEvent(&locker, &m_renderCondition, 300)
+                                                 ? m_renderReturn
+-                                                : GST_FLOW_ERROR;
++                                                : GST_FLOW_OK;
+ 
+     m_renderBuffer = 0;
+ 
+-- 
+2.56.0
+

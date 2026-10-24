@@ -1,0 +1,6 @@
+# Mainline camera stack (libcamera): sandboxed apps with the Camera permission need the
+# software-ISP tuning files, or libcamera disables debayering and only offers raw Bayer
+# (black viewfinder in jolla-camera). Camera.permission (sailjail-permissions) has no
+# per-device hook and every sandbox includes disable-common.inc, so it goes here; the
+# directory is read-only data.
+whitelist /usr/share/libcamera
