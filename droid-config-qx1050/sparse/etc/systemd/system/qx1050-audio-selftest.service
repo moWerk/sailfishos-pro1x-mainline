@@ -1,0 +1,13 @@
+[Unit]
+Description=Bring-up: mic loopback check of the speaker after the card re-probe (logs PLAYS/SILENT)
+After=qx1050-audio-reprobe.service multi-user.target
+Wants=qx1050-audio-reprobe.service
+
+[Service]
+Type=oneshot
+# PulseAudio and the user session are up by then; the test suspends and resumes PA's devices.
+# Ratio 2 at volume 8: playing measures ~4x the noise floor, silent ~1x (calibrated 2026-10-24).
+ExecStart=/bin/sh -c 'sleep 25; /usr/bin/droid/audio-loopback-test.sh 2 8'
+
+[Install]
+WantedBy=multi-user.target
