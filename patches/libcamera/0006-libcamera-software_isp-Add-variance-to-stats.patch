@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Zamazal <mzamazal@redhat.com>
+Date: Wed, 21 Oct 2026 09:59:43 +0200
+Subject: [PATCH 06/10] libcamera: software_isp: Add variance to stats
+
+The libipa Af algorithm requests variance value as its input.  Let's add
+the corresponding member to SwIspStats and initialise it.
+
+This commit is preparatory and doesn't implement computation of the
+variance nor introduces other changes to the stats like when to update
+them for autofocus.
+
+Signed-off-by: Milan Zamazal <mzamazal@redhat.com>
+---
+ include/libcamera/internal/software_isp/swisp_stats.h | 4 ++++
+ src/libcamera/software_isp/swstats_cpu.cpp            | 3 +++
+ 2 files changed, 7 insertions(+)
+
+diff --git a/include/libcamera/internal/software_isp/swisp_stats.h b/include/libcamera/internal/software_isp/swisp_stats.h
+index d9d0d9be..43ca85b2 100644
+--- a/include/libcamera/internal/software_isp/swisp_stats.h
++++ b/include/libcamera/internal/software_isp/swisp_stats.h
+@@ -43,6 +43,10 @@ struct SwIspStats {
+ 	 * \brief A histogram of luminance values of all the sampled pixels
+ 	 */
+ 	Histogram yHistogram;
++	/**
++	 * \brief A variance value for the autofocus algorithm
++	 */
++	double variance;
+ };
+ 
+ } /* namespace libcamera */
+diff --git a/src/libcamera/software_isp/swstats_cpu.cpp b/src/libcamera/software_isp/swstats_cpu.cpp
+index 362fb6a8..0d2bbd68 100644
+--- a/src/libcamera/software_isp/swstats_cpu.cpp
++++ b/src/libcamera/software_isp/swstats_cpu.cpp
+@@ -391,6 +391,7 @@ void SwStatsCpu::startFrame(uint32_t frame)
+ 
+ 	for (auto &s : stats_) {
+ 		s.sum_ = RGB<uint64_t>({ 0, 0, 0 });
++		s.variance = 0.0;
+ 		s.yHistogram.fill(0);
+ 	}
+ }
+@@ -408,9 +409,11 @@ void SwStatsCpu::finishFrame(uint32_t frame, uint32_t bufferId)
+ 
+ 	if (valid) {
+ 		sharedStats_->sum_ = RGB<uint64_t>({ 0, 0, 0 });
++		sharedStats_->variance = 0.0;
+ 		sharedStats_->yHistogram.fill(0);
+ 		for (const auto &s : stats_) {
+ 			sharedStats_->sum_ += s.sum_;
++			sharedStats_->variance += s.variance;
+ 			for (unsigned int j = 0; j < SwIspStats::kYHistogramSize; j++)
+ 				sharedStats_->yHistogram[j] += s.yHistogram[j];
+ 		}

@@ -1,0 +1,224 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Sun, 25 Oct 2026 17:02:10 +0100
+Subject: [PATCH 10/10] software_isp: Compute an autofocus sharpness value
+
+Fill SwIspStats::variance, the input of the libipa Af algorithm, for 10-bit
+packed Bayer data: the mean squared difference of same colour neighbours
+(pixels 0/2 and 1/3 of each packed group, 8 MSBs, both lines of a pair) over the
+central third of the stats window, scaled by 100 because the Af comparisons
+truncate differences to integers. Computed in a separate per-line function on
+the lines the stats already visit, so the existing stats functions stay as they
+are.
+
+The Af algorithm acts only on frames with fresh stats (every
+kStatPerNumFrames), otherwise it would step the lens on stale values, and the
+IPA sets the focus only if the camera has a lens.
+
+LLMGD-0 A0
+---
+ .../internal/software_isp/swisp_stats.h       |  4 ++
+ .../internal/software_isp/swstats_cpu.h       | 13 +++++
+ src/ipa/simple/algorithms/af.cpp              |  4 ++
+ src/ipa/simple/soft_simple.cpp                |  3 +-
+ src/libcamera/software_isp/swstats_cpu.cpp    | 53 ++++++++++++++++++-
+ 5 files changed, 75 insertions(+), 2 deletions(-)
+
+diff --git a/include/libcamera/internal/software_isp/swisp_stats.h b/include/libcamera/internal/software_isp/swisp_stats.h
+index 43ca85b2..2f24f918 100644
+--- a/include/libcamera/internal/software_isp/swisp_stats.h
++++ b/include/libcamera/internal/software_isp/swisp_stats.h
+@@ -47,6 +47,10 @@ struct SwIspStats {
+ 	 * \brief A variance value for the autofocus algorithm
+ 	 */
+ 	double variance;
++	/**
++	 * \brief Number of samples summed up in variance while collecting
++	 */
++	uint64_t varianceSamples;
+ };
+ 
+ } /* namespace libcamera */
+diff --git a/include/libcamera/internal/software_isp/swstats_cpu.h b/include/libcamera/internal/software_isp/swstats_cpu.h
+index cd5303a5..9cc24794 100644
+--- a/include/libcamera/internal/software_isp/swstats_cpu.h
++++ b/include/libcamera/internal/software_isp/swstats_cpu.h
+@@ -61,6 +61,8 @@ public:
+ 			return;
+ 
+ 		(this->*stats0_)(src, stats_[statsBufferIndex]);
++		if (sharpness_ && inSharpnessWindow(y))
++			(this->*sharpness_)(src, stats_[statsBufferIndex]);
+ 	}
+ 
+ 	void processLine2(uint32_t frame, unsigned int y, const uint8_t *src[], unsigned int statsBufferIndex = 0)
+@@ -103,6 +105,14 @@ private:
+ 	void statsBGGR12PLine0(const uint8_t *src[], SwIspStats &stats);
+ 	void statsGBRG12PLine0(const uint8_t *src[], SwIspStats &stats);
+ 
++	/* Autofocus sharpness, Bayer 10 bpp packed */
++	void sharpness10PLine0(const uint8_t *src[], SwIspStats &stats);
++	bool inSharpnessWindow(unsigned int y) const
++	{
++		return y >= sharpnessWindow_.y &&
++		       y < sharpnessWindow_.y + sharpnessWindow_.height;
++	}
++
+ 	void processBayerFrame2(MappedFrameBuffer &in);
+ 
+ 	processFrameFn processFrame_;
+@@ -115,6 +125,9 @@ private:
+ 	unsigned int ySkipMask_;
+ 
+ 	Rectangle window_;
++	/* Central part of window_ used for the autofocus sharpness */
++	Rectangle sharpnessWindow_;
++	statsProcessFn sharpness_ = nullptr;
+ 
+ 	Size patternSize_;
+ 
+diff --git a/src/ipa/simple/algorithms/af.cpp b/src/ipa/simple/algorithms/af.cpp
+index 154a6036..42f893c9 100644
+--- a/src/ipa/simple/algorithms/af.cpp
++++ b/src/ipa/simple/algorithms/af.cpp
+@@ -40,6 +40,10 @@ void Af::process(IPAContext &context,
+ 		 const SwIspStats *stats,
+ 		 [[maybe_unused]] ControlList &metadata)
+ {
++	/* The stats are computed every few frames only */
++	if (!stats->valid || !stats->varianceSamples)
++		return;
++
+ 	const double variance = stats->variance;
+ 	LOG(IPASoftAf, Debug) << "Focus stats: " << variance;
+ 	afAlgo_.process(context.activeState.af, variance);
+diff --git a/src/ipa/simple/soft_simple.cpp b/src/ipa/simple/soft_simple.cpp
+index 9db0a0c7..f6795e2b 100644
+--- a/src/ipa/simple/soft_simple.cpp
++++ b/src/ipa/simple/soft_simple.cpp
+@@ -327,7 +327,8 @@ void IPASoftSimple::processStats(const uint32_t frame,
+ 		  static_cast<int32_t>(camHelper_ ? camHelper_->gainCode(againNew) : againNew));
+ 
+ 	ControlList lensCtrls(context_.lensControls);
+-	if (context_.afEnabled)
++	if (context_.afEnabled &&
++	    context_.lensControls.find(V4L2_CID_FOCUS_ABSOLUTE) != context_.lensControls.end())
+ 		lensCtrls.set(V4L2_CID_FOCUS_ABSOLUTE,
+ 			      static_cast<int32_t>(context_.activeState.af.focus));
+ 	setSensorControls.emit(ctrls, lensCtrls);
+diff --git a/src/libcamera/software_isp/swstats_cpu.cpp b/src/libcamera/software_isp/swstats_cpu.cpp
+index 0d2bbd68..3a19e983 100644
+--- a/src/libcamera/software_isp/swstats_cpu.cpp
++++ b/src/libcamera/software_isp/swstats_cpu.cpp
+@@ -323,6 +323,34 @@ void SwStatsCpu::statsGBRG10PLine0(const uint8_t *src[], SwIspStats &stats)
+ 	SWSTATS_FINISH_LINE_STATS()
+ }
+ 
++/*
++ * Autofocus sharpness: squared differences of same colour neighbours (pixels 0
++ * and 2, 1 and 3 of each packed group; the 8 MSBs) on both lines of the pair,
++ * independent of the Bayer order. A high frequency measure that peaks when the
++ * image is in focus.
++ */
++void SwStatsCpu::sharpness10PLine0(const uint8_t *src[], SwIspStats &stats)
++{
++	const unsigned int start = sharpnessWindow_.x * 5 / 4;
++	const unsigned int end = start + sharpnessWindow_.width * 5 / 4;
++	uint64_t sum = 0;
++	unsigned int n = 0;
++
++	for (unsigned int l = 1; l <= 2; l++) {
++		const uint8_t *line = src[l];
++
++		for (unsigned int x = start; x + 5 <= end; x += 5) {
++			const int d0 = line[x] - line[x + 2];
++			const int d1 = line[x + 1] - line[x + 3];
++			sum += d0 * d0 + d1 * d1;
++			n += 2;
++		}
++	}
++
++	stats.variance += sum;
++	stats.varianceSamples += n;
++}
++
+ void SwStatsCpu::statsBGGR12PLine0(const uint8_t *src[], SwIspStats &stats)
+ {
+ 	const uint8_t *src0 = src[1] + window_.x * 3 / 2;
+@@ -392,6 +420,7 @@ void SwStatsCpu::startFrame(uint32_t frame)
+ 	for (auto &s : stats_) {
+ 		s.sum_ = RGB<uint64_t>({ 0, 0, 0 });
+ 		s.variance = 0.0;
++		s.varianceSamples = 0;
+ 		s.yHistogram.fill(0);
+ 	}
+ }
+@@ -410,15 +439,26 @@ void SwStatsCpu::finishFrame(uint32_t frame, uint32_t bufferId)
+ 	if (valid) {
+ 		sharedStats_->sum_ = RGB<uint64_t>({ 0, 0, 0 });
+ 		sharedStats_->variance = 0.0;
++		sharedStats_->varianceSamples = 0;
+ 		sharedStats_->yHistogram.fill(0);
+ 		for (const auto &s : stats_) {
+ 			sharedStats_->sum_ += s.sum_;
+ 			sharedStats_->variance += s.variance;
++			sharedStats_->varianceSamples += s.varianceSamples;
+ 			for (unsigned int j = 0; j < SwIspStats::kYHistogramSize; j++)
+ 				sharedStats_->yHistogram[j] += s.yHistogram[j];
+ 		}
+ 
+ 		sharedStats_->sum_ >>= sumShift_;
++
++		/*
++		 * Mean squared difference, scaled so that the autofocus
++		 * comparisons (which truncate differences to integers) keep
++		 * their resolution.
++		 */
++		if (sharedStats_->varianceSamples)
++			sharedStats_->variance = sharedStats_->variance * 100 /
++						 sharedStats_->varianceSamples;
+ 	}
+ 
+ 	sharedStats_->valid = valid;
+@@ -472,6 +512,7 @@ int SwStatsCpu::configure(const StreamConfiguration &inputCfg, unsigned int stat
+ {
+ 	stride_ = inputCfg.stride;
+ 	stats_.resize(statsBufferCount);
++	sharpness_ = nullptr;
+ 
+ 	BayerFormat bayerFormat =
+ 		BayerFormat::fromPixelFormat(inputCfg.pixelFormat);
+@@ -499,8 +540,10 @@ int SwStatsCpu::configure(const StreamConfiguration &inputCfg, unsigned int stat
+ 
+ 	if ((bitDepth == 10 || bitDepth == 12) &&
+ 	    bayerFormat.packing == BayerFormat::Packing::CSI2) {
+-		if (bitDepth == 10)
++		if (bitDepth == 10) {
+ 			patternSize_.width = 4; /* 5 bytes per *4* pixels */
++			sharpness_ = &SwStatsCpu::sharpness10PLine0;
++		}
+ 		else
+ 			patternSize_.width = 2; /* 3 bytes for *2* pixels */
+ 
+@@ -573,6 +616,12 @@ void SwStatsCpu::setWindow(const Rectangle &window)
+ 	window_.width = (window_.width > xShift_ ? window_.width - xShift_ : 0);
+ 	window_.width &= ~(patternSize_.width - 1);
+ 	window_.height &= ~(patternSize_.height - 1);
++
++	/* The central third of the window, aligned to 4 pixels (packed groups) */
++	sharpnessWindow_.x = (window_.x + window_.width / 3) & ~3;
++	sharpnessWindow_.y = (window_.y + window_.height / 3) & ~1;
++	sharpnessWindow_.width = (window_.width / 3) & ~3;
++	sharpnessWindow_.height = (window_.height / 3) & ~1;
+ }
+ 
+ void SwStatsCpu::processBayerFrame2(MappedFrameBuffer &in)
+@@ -593,6 +642,8 @@ void SwStatsCpu::processBayerFrame2(MappedFrameBuffer &in)
+ 		linePointers[1] = src;
+ 		linePointers[2] = src + stride_;
+ 		(this->*stats0_)(linePointers, stats_[0]);
++		if (sharpness_ && inSharpnessWindow(window_.y + y))
++			(this->*sharpness_)(linePointers, stats_[0]);
+ 		src += stride_ * 2;
+ 	}
+ }

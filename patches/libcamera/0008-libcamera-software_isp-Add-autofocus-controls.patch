@@ -1,0 +1,174 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Zamazal <mzamazal@redhat.com>
+Date: Wed, 21 Oct 2026 09:59:46 +0200
+Subject: [PATCH 08/10] libcamera: software_isp: Add autofocus controls
+
+When the camera supports autofocus, the lens controls are passed around
+and autofocus values are read and written.
+
+This is similar to what ipu3 pipeline already does.
+
+Signed-off-by: Milan Zamazal <mzamazal@redhat.com>
+Reviewed-by: Kieran Bingham <kieran.bingham@ideasonboard.com>
+
+[moWerk: backported to v0.7.2 by hand (soft.mojom, soft_simple.cpp). The lens position is applied also when a frameStart signal exists; the RFC sets it only without one, so the lens never moves on such pipelines]
+---
+ .../internal/software_isp/software_isp.h      |  4 ++--
+ include/libcamera/ipa/soft.mojom              |  3 ++-
+ src/ipa/simple/ipa_context.h                  |  1 +
+ src/ipa/simple/soft_simple.cpp                |  7 ++++++-
+ src/libcamera/pipeline/simple/simple.cpp      | 19 +++++++++++++++++--
+ src/libcamera/software_isp/software_isp.cpp   |  5 +++--
+ 6 files changed, 31 insertions(+), 8 deletions(-)
+
+diff --git a/include/libcamera/internal/software_isp/software_isp.h b/include/libcamera/internal/software_isp/software_isp.h
+index 4f72dce9..bf2cfea4 100644
+--- a/include/libcamera/internal/software_isp/software_isp.h
++++ b/include/libcamera/internal/software_isp/software_isp.h
+@@ -86,11 +86,11 @@ public:
+ 	Signal<FrameBuffer *> outputBufferReady;
+ 	Signal<uint32_t, uint32_t> ispStatsReady;
+ 	Signal<uint32_t, const ControlList &> metadataReady;
+-	Signal<const ControlList &> setSensorControls;
++	Signal<const ControlList &, const ControlList &> setSensorControls;
+ 
+ private:
+ 	void saveIspParams();
+-	void setSensorCtrls(const ControlList &sensorControls);
++	void setSensorCtrls(const ControlList &sensorControls, const ControlList &lensControls);
+ 	void statsReady(uint32_t frame, uint32_t bufferId);
+ 	void inputReady(FrameBuffer *input);
+ 	void outputReady(FrameBuffer *output);
+diff --git a/include/libcamera/ipa/soft.mojom b/include/libcamera/ipa/soft.mojom
+index 77328c5f..e5767532 100644
+--- a/include/libcamera/ipa/soft.mojom
++++ b/include/libcamera/ipa/soft.mojom
+@@ -10,6 +10,7 @@ import "include/libcamera/ipa/core.mojom";
+ 
+ struct IPAConfigInfo {
+ 	libcamera.ControlInfoMap sensorControls;
++	libcamera.ControlInfoMap lensControls;
+ };
+ 
+ interface IPASoftInterface {
+@@ -32,7 +33,7 @@ interface IPASoftInterface {
+ };
+ 
+ interface IPASoftEventInterface {
+-	setSensorControls(libcamera.ControlList sensorControls);
++	setSensorControls(libcamera.ControlList sensorControls, libcamera.ControlList lensControls);
+ 	setIspParams();
+ 	metadataReady(uint32 frame, libcamera.ControlList metadata);
+ };
+diff --git a/src/ipa/simple/ipa_context.h b/src/ipa/simple/ipa_context.h
+index 556f036e..d92316eb 100644
+--- a/src/ipa/simple/ipa_context.h
++++ b/src/ipa/simple/ipa_context.h
+@@ -88,6 +88,7 @@ struct IPAContext {
+ 	}
+ 
+ 	IPACameraSensorInfo sensorInfo;
++	ControlInfoMap lensControls;
+ 	IPASessionConfiguration configuration;
+ 	IPAActiveState activeState;
+ 	FCQueue<IPAFrameContext> frameContexts;
+diff --git a/src/ipa/simple/soft_simple.cpp b/src/ipa/simple/soft_simple.cpp
+index 629e1a32..9db0a0c7 100644
+--- a/src/ipa/simple/soft_simple.cpp
++++ b/src/ipa/simple/soft_simple.cpp
+@@ -202,6 +202,7 @@ int IPASoftSimple::init(const IPASettings &settings,
+ int IPASoftSimple::configure(const IPAConfigInfo &configInfo)
+ {
+ 	sensorInfoMap_ = configInfo.sensorControls;
++	context_.lensControls = configInfo.lensControls;
+ 
+ 	const ControlInfo &exposureInfo = sensorInfoMap_.find(V4L2_CID_EXPOSURE)->second;
+ 	const ControlInfo &gainInfo = sensorInfoMap_.find(V4L2_CID_ANALOGUE_GAIN)->second;
+@@ -325,7 +326,11 @@ void IPASoftSimple::processStats(const uint32_t frame,
+ 	ctrls.set(V4L2_CID_ANALOGUE_GAIN,
+ 		  static_cast<int32_t>(camHelper_ ? camHelper_->gainCode(againNew) : againNew));
+ 
+-	setSensorControls.emit(ctrls);
++	ControlList lensCtrls(context_.lensControls);
++	if (context_.afEnabled)
++		lensCtrls.set(V4L2_CID_FOCUS_ABSOLUTE,
++			      static_cast<int32_t>(context_.activeState.af.focus));
++	setSensorControls.emit(ctrls, lensCtrls);
+ }
+ 
+ std::string IPASoftSimple::logPrefix() const
+diff --git a/src/libcamera/pipeline/simple/simple.cpp b/src/libcamera/pipeline/simple/simple.cpp
+index e26f438d..4342b6db 100644
+--- a/src/libcamera/pipeline/simple/simple.cpp
++++ b/src/libcamera/pipeline/simple/simple.cpp
+@@ -34,6 +34,7 @@
+ 
+ #include "libcamera/internal/camera.h"
+ #include "libcamera/internal/camera_manager.h"
++#include "libcamera/internal/camera_lens.h"
+ #include "libcamera/internal/camera_sensor.h"
+ #include "libcamera/internal/camera_sensor_properties.h"
+ #include "libcamera/internal/converter.h"
+@@ -371,7 +372,8 @@ private:
+ 
+ 	void ispStatsReady(uint32_t frame, uint32_t bufferId);
+ 	void metadataReady(uint32_t frame, const ControlList &metadata);
+-	void setSensorControls(const ControlList &sensorControls);
++	void setSensorControls(const ControlList &sensorControls,
++			       const ControlList &lensControls);
+ };
+ 
+ class SimpleCameraConfiguration : public CameraConfiguration
+@@ -1041,7 +1043,8 @@ void SimpleCameraData::metadataReady(uint32_t frame, const ControlList &metadata
+ 	tryCompleteRequest(info->request);
+ }
+ 
+-void SimpleCameraData::setSensorControls(const ControlList &sensorControls)
++void SimpleCameraData::setSensorControls(const ControlList &sensorControls,
++					 const ControlList &lensControls)
+ {
+ 	delayedCtrls_->push(sensorControls);
+ 	/*
+@@ -1056,6 +1059,16 @@ void SimpleCameraData::setSensorControls(const ControlList &sensorControls)
+ 		ControlList ctrls(sensorControls);
+ 		sensor_->setControls(&ctrls);
+ 	}
++
++	/*
++	 * The lens position is not frame synchronised, apply it directly also
++	 * when there is a frameStart signal.
++	 */
++	CameraLens *lens = sensor_->focusLens();
++	if (lens && lensControls.contains(V4L2_CID_FOCUS_ABSOLUTE)) {
++		const ControlValue &focusValue = lensControls.get(V4L2_CID_FOCUS_ABSOLUTE);
++		lens->setFocusPosition(focusValue.get<int32_t>());
++	}
+ }
+ 
+ /* Retrieve all source pads connected to a sink pad through active routes. */
+@@ -1605,6 +1618,8 @@ int SimplePipelineHandler::configure(Camera *camera, CameraConfiguration *c)
+ 	} else {
+ 		ipa::soft::IPAConfigInfo configInfo;
+ 		configInfo.sensorControls = data->sensor_->controls();
++		if (data->sensor_->focusLens())
++			configInfo.lensControls = data->sensor_->focusLens()->controls();
+ 		return data->swIsp_->configure(inputCfg, outputCfgs, configInfo);
+ 	}
+ }
+diff --git a/src/libcamera/software_isp/software_isp.cpp b/src/libcamera/software_isp/software_isp.cpp
+index c73a16ce..703b943b 100644
+--- a/src/libcamera/software_isp/software_isp.cpp
++++ b/src/libcamera/software_isp/software_isp.cpp
+@@ -436,9 +436,10 @@ void SoftwareIsp::saveIspParams()
+ 	debayerParams_ = *sharedParams_;
+ }
+ 
+-void SoftwareIsp::setSensorCtrls(const ControlList &sensorControls)
++void SoftwareIsp::setSensorCtrls(const ControlList &sensorControls,
++				 const ControlList &lensControls)
+ {
+-	setSensorControls.emit(sensorControls);
++	setSensorControls.emit(sensorControls, lensControls);
+ }
+ 
+ void SoftwareIsp::statsReady(uint32_t frame, uint32_t bufferId)

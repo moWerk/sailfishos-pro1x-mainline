@@ -1,0 +1,15 @@
+# libcamera 0.7 software ISP tuning for the Pro1X s5k4h7.
+# Only BlackLevel and Ccm read tuning data; Awb, Adjust and Agc use fixed constants.
+version: 1
+algorithms:
+  - BlackLevel:
+      # 16-bit value, libcamera uses it >> 8. 4096 = 16/255, matching the sensor helper.
+      blackLevel: 4096
+  - Awb:
+  # Needs a calibrated matrix to be useful; add per colour temperature (K) rows:
+  # - Ccm:
+  #     ccms:
+  #       - ct: 6500
+  #         ccm: [ 1, 0, 0,  0, 1, 0,  0, 0, 1 ]
+  - Adjust:
+  - Agc:

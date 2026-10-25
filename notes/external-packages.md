@@ -21,8 +21,32 @@ and https://repo.sailfishos.org/obs/nemo:/devel:/hw:/native-common/sailfish_late
 
 | Package | Source | Why |
 |---|---|---|
-| qt5-qtmultimedia 5.6.2+v4l.20261024000000.qx1050 (all installed subpackages) | mlehtima/qtmultimedia branch v4l at c98eb6d0 + `patches/qtmultimedia/0001-…` | camerabin plugin crash with libcamerasrc (null size in `supportedResolutions`) |
+| qt5-qtmultimedia 5.6.2+v4l.20261024000000.qx1050-10 (all installed subpackages) | mlehtima/qtmultimedia branch v4l at c98eb6d0 + `patches/qtmultimedia/0001-…` | camerabin plugin crash with libcamerasrc (null size in `supportedResolutions`); later releases: libcamera enumeration, sizes, viewfinder orientation and front camera mirror (R10) |
 | libcamera 0.7.2-1.qx1050 (+tools) | upstream v0.7.2, packaging from mlehtima/libcamera (native-common), qcam/lc-compliance/tests off | `PipelineHandler::stop()` assertion of 0.4.0 on camera unload (software-ISP stop fixes landed in 0.5.0, request completion on stop in 0.6.0) |
+| libcamera 0.7.2-3.qx1050 (+tools) | as -2 (imx582/s5k4h7 sensor helpers) + Milan Zamazal's RFC "Autofocus basics for software ISP" (patchwork series 6276, 2026-10-21) backported, + a sharpness statistic (0010) | autofocus for the imx582/dw9800; built 2026-10-25, not yet verified on the device |
+| gstreamer1.0-plugins-good 1.26.11+git1-1.14.2.qx1050 | sailfishos/gst-plugins-good with `-Dv4l2-probe=true` (`patches/gst-plugins-good/`) | v4l2h264enc (Venus) for video recording |
+
+## Pitfalls met on the way (camera, 2026-10-25)
+
+- **libcamera-qx1050 is built from the patched tree, not from the spec.** `mb2` builds the
+  source directory as it is; the `Patch:` lines in `rpm/libcamera.spec` only document what the
+  tree already carries. A patch that is only listed is silently not built (the first 0.7.2-3
+  build had no autofocus code, and the tuning file's `Af:` entry then made the IPA fail to load:
+  "Algorithm 'Af' not found", no software ISP, no camera). Apply with `patch -p1` in the tree
+  and keep the spec list in step.
+- **The RFC series alone does not focus.** It computes no sharpness value (`variance` stays 0),
+  moves the lens only on pipelines without a frameStart signal, and lets the algorithm act on
+  stale stats on 3 of 4 frames; 0008 and 0010 in the backport cover these.
+- **Focus "worked" on one boot by accident.** A blur/sharp difference between boots came from
+  where the lens happened to sit, not from autofocus: libcamera 0.7.2 had no lens control at
+  all. A manual sweep (v4l2-ctl `focus_absolute` with the subdev held open) shows position
+  ~200 sharp at 1-2 m. `media-ctl -p` does not print ancillary (lens) links; "0 links" on the
+  dw9800 entity is normal.
+- **The camera "shutter clack" on mainline is the dw9800 lens**, not a sound (audible from the
+  camera bump with all volume off): the driver's power-up/park ramp (16 codes per 1 ms) is a
+  near jump for the voice coil, and libcamera opens the lens several times on camera start.
+- **v4l-utils on SailfishOS:** none in the repositories; bind-mount the NixOS store
+  (`mount --bind /mnt/nixos/nix /nix`) and run v4l2-ctl/media-ctl from it.
 
 The first qtmultimedia build used Version `…+v4l.20261024.qx1050`, which rpm sorts *below*
 native-common's `…+v4l.20230905210651…` (segments compare numerically); installed with
