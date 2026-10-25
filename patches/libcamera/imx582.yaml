@@ -24,3 +24,6 @@ algorithms:
       fineStep: 16
       fineRange: 0.08
       ignoreFrames: 2
+      # A far-focused frame of a near object loses less than the libipa default 50% of
+      # sharpness, which left refocus waiting; noise between measurements is 1-3%.
+      maxChange: 0.3
