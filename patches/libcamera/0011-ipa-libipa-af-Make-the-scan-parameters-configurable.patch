@@ -1,0 +1,173 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Sun, 25 Oct 2026 18:14:41 +0100
+Subject: [PATCH] ipa: libipa: af: Make the scan parameters configurable
+
+The coarse and fine step sizes, the fine scan range, the refocus threshold and
+the number of frames ignored before a scan were constants tuned for the IPU3,
+which gets AF statistics on every frame. The software ISP computes them every
+kStatPerNumFrames frames only, so the 2 x 10 ignored frames alone cost about
+80 frames (~3 s) after a scene change, and the 1-code fine scan another ~40
+measurements.
+
+Move them into af::Parameters (defaults: the IPU3 values) with a setter, and
+let the soft IPA Af read optional coarseStep, fineStep, fineRange, maxChange and
+ignoreFrames from the tuning file.
+
+LLMGD-0 A0
+---
+ src/ipa/libipa/af.cpp            | 33 +++++++++++++-------------------
+ src/ipa/libipa/af.h              | 11 +++++++++++
+ src/ipa/simple/algorithms/af.cpp | 11 ++++++++++-
+ 3 files changed, 34 insertions(+), 21 deletions(-)
+
+diff --git a/src/ipa/libipa/af.cpp b/src/ipa/libipa/af.cpp
+index fc71bcd7..382ae48a 100644
+--- a/src/ipa/libipa/af.cpp
++++ b/src/ipa/libipa/af.cpp
+@@ -46,18 +46,11 @@ namespace af {
+  */
+ static constexpr uint32_t kMaxFocusSteps = 1023;
+ 
+-/* Minimum focus step for searching appropriate focus */
+-static constexpr uint32_t kCoarseSearchStep = 30;
+-static constexpr uint32_t kFineSearchStep = 1;
+-
+-/* Max ratio of variance change, 0.0 < kMaxChange < 1.0 */
+-static constexpr double kMaxChange = 0.5;
+-
+-/* The numbers of frame to be ignored, before performing focus scan. */
+-static constexpr uint32_t kIgnoreFrame = 10;
+-
+-/* Fine scan range 0 < kFineRange < 1 */
+-static constexpr double kFineRange = 0.05;
++/*
++ * The scan parameters (step sizes, fine scan range, refocus threshold, frames
++ * ignored before a scan) are in af::Parameters; the defaults are the values
++ * tuned for the IPU3.
++ */
+ 
+ AfAlgorithm::AfAlgorithm()
+ 	: focus_(0), bestFocus_(0), currentVariance_(0.0), previousVariance_(0.0),
+@@ -75,7 +68,7 @@ AfAlgorithm::AfAlgorithm()
+  * \param[in] state The autofocus state
+  *
+  * Find a near focused image using a coarse step. The step is determined by
+- * kCoarseSearchStep.
++ * af::Parameters::coarseStep.
+  */
+ void AfAlgorithm::afCoarseScan(af::ActiveState &state)
+ {
+@@ -85,14 +78,14 @@ void AfAlgorithm::afCoarseScan(af::ActiveState &state)
+ 	if (afNeedIgnoreFrame())
+ 		return;
+ 
+-	if (afScan(state, kCoarseSearchStep)) {
++	if (afScan(state, params_.coarseStep)) {
+ 		coarseCompleted_ = true;
+ 		state.maxVariance = 0;
+ 		focus_ = state.focus -
+-			 (state.focus * kFineRange);
++			 (state.focus * params_.fineRange);
+ 		state.focus = focus_;
+ 		previousVariance_ = 0;
+-		maxStep_ = std::clamp(focus_ + static_cast<uint32_t>((focus_ * kFineRange)),
++		maxStep_ = std::clamp(focus_ + static_cast<uint32_t>((focus_ * params_.fineRange)),
+ 				      0U, kMaxFocusSteps);
+ 	}
+ }
+@@ -111,7 +104,7 @@ void AfAlgorithm::afFineScan(af::ActiveState &state)
+ 	if (afNeedIgnoreFrame())
+ 		return;
+ 
+-	if (afScan(state, kFineSearchStep)) {
++	if (afScan(state, params_.fineStep)) {
+ 		state.stable = true;
+ 		fineCompleted_ = true;
+ 	}
+@@ -132,7 +125,7 @@ void AfAlgorithm::afReset(af::ActiveState &state)
+ 	state.focus = 0;
+ 	focus_ = 0;
+ 	state.stable = false;
+-	ignoreCounter_ = kIgnoreFrame;
++	ignoreCounter_ = params_.ignoreFrames;
+ 	previousVariance_ = 0.0;
+ 	coarseCompleted_ = false;
+ 	fineCompleted_ = false;
+@@ -212,7 +205,7 @@ bool AfAlgorithm::afNeedIgnoreFrame()
+  */
+ void AfAlgorithm::afIgnoreFrameReset()
+ {
+-	ignoreCounter_ = kIgnoreFrame;
++	ignoreCounter_ = params_.ignoreFrames;
+ }
+ 
+ /**
+@@ -236,7 +229,7 @@ bool AfAlgorithm::afIsOutOfFocus(af::ActiveState &state)
+ 		       << " Current VCM step: "
+ 		       << state.focus;
+ 
+-	if (var_ratio > kMaxChange)
++	if (var_ratio > params_.maxChange)
+ 		return true;
+ 	else
+ 		return false;
+diff --git a/src/ipa/libipa/af.h b/src/ipa/libipa/af.h
+index 0b2587ed..3a8cec7b 100644
+--- a/src/ipa/libipa/af.h
++++ b/src/ipa/libipa/af.h
+@@ -26,6 +26,14 @@ struct ActiveState {
+ 	bool stable;
+ };
+ 
++struct Parameters {
++	uint32_t coarseStep = 30;
++	uint32_t fineStep = 1;
++	double fineRange = 0.05;
++	double maxChange = 0.5;
++	uint32_t ignoreFrames = 10;
++};
++
+ } /* namespace af */
+ 
+ class AfAlgorithm
+@@ -33,6 +41,7 @@ class AfAlgorithm
+ public:
+ 	AfAlgorithm();
+ 
++	void setParameters(const af::Parameters &params) { params_ = params; }
+ 	void configure(af::ActiveState &state, const ControlInfoMap &lensControls);
+ 	void process(af::ActiveState &state, double variance);
+ 	bool coarseCompleted() { return coarseCompleted_; }
+@@ -65,6 +74,8 @@ private:
+ 	bool coarseCompleted_;
+ 	/* If the fine scan completes, it is set to true. */
+ 	bool fineCompleted_;
++	/* Scan parameters */
++	af::Parameters params_;
+ };
+ 
+ } /* namespace ipa */
+diff --git a/src/ipa/simple/algorithms/af.cpp b/src/ipa/simple/algorithms/af.cpp
+index 42f893c9..45d38b5d 100644
+--- a/src/ipa/simple/algorithms/af.cpp
++++ b/src/ipa/simple/algorithms/af.cpp
+@@ -19,8 +19,17 @@ namespace ipa::soft::algorithms {
+ 
+ LOG_DEFINE_CATEGORY(IPASoftAf)
+ 
+-int Af::init(IPAContext &context, [[maybe_unused]] const ValueNode &tuningData)
++int Af::init(IPAContext &context, const ValueNode &tuningData)
+ {
++	/* Optional scan parameters, the libipa (IPU3) defaults otherwise */
++	ipa::af::Parameters params;
++	params.coarseStep = tuningData["coarseStep"].get<uint32_t>(params.coarseStep);
++	params.fineStep = tuningData["fineStep"].get<uint32_t>(params.fineStep);
++	params.fineRange = tuningData["fineRange"].get<double>(params.fineRange);
++	params.maxChange = tuningData["maxChange"].get<double>(params.maxChange);
++	params.ignoreFrames = tuningData["ignoreFrames"].get<uint32_t>(params.ignoreFrames);
++	afAlgo_.setParameters(params);
++
+ 	/* Informs that lens controls can get focus data */
+ 	context.afEnabled = true;
+ 

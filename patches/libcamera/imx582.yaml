@@ -16,3 +16,11 @@ algorithms:
   # Contrast autofocus (libipa hill climbing on the software ISP sharpness value); the
   # imx582 has the dw9800 lens, the s5k4h7 is fixed focus.
   - Af:
+      # Measured on the Pro1-X (2026-10-25): the sharpness peak is about +-40 codes wide
+      # (near object: 729 / 951 / 765 at 420 / 450 / 480), so coarse 64 and fine 16
+      # steps are enough. Stats come every 4th frame; 2 ignored measurements cover the
+      # lens settling and debounce a refocus.
+      coarseStep: 64
+      fineStep: 16
+      fineRange: 0.08
+      ignoreFrames: 2
