@@ -1,0 +1,47 @@
+From 7f3c887477cb2ef6efb8cb48da297d1e35dd54a6 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Sun, 25 Oct 2026 02:43:52 +0100
+Subject: [PATCH] rpm: enable v4l2-probe (stateful V4L2 codecs: v4l2h264enc on
+ Venus)
+
+Jolla builds the video4linux2 plugin with -Dv4l2-probe=false, which compiles
+out the probing that registers the m2m codec elements (v4l2h264enc,
+v4l2h264dec, ...) per /dev/video* device. Hybris devices encode through
+droidmedia and never needed it; a mainline port with a stateful V4L2
+codec (Qualcomm Venus) gets no hardware encoder without it.
+
+Version/Release match the installed 1.26.11+git1-1.14.2.jolla so that
+this build replaces it.
+
+LLMGD-2 A2
+---
+ rpm/gst-plugins-good.spec | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/rpm/gst-plugins-good.spec b/rpm/gst-plugins-good.spec
+index 4dc989d..a21d094 100644
+--- a/rpm/gst-plugins-good.spec
++++ b/rpm/gst-plugins-good.spec
+@@ -5,8 +5,8 @@
+ %global _vpath_builddir subprojects/gst-plugins-good/_build
+ 
+ Name:           %{gstreamer}%{majorminor}-plugins-good
+-Version:        1.26.11
+-Release:        1
++Version:        1.26.11+git1
++Release:        1.14.2.qx1050
+ Summary:        GStreamer plug-ins with good code and licensing
+ License:        LGPLv2+
+ URL:            https://github.com/sailfishos/gst-plugins-good
+@@ -74,7 +74,7 @@ plug-ins.
+   -Drpicamsrc=disabled \
+   -Dshout2=disabled \
+   -Dtaglib=disabled \
+-  -Dv4l2-probe=false \
++  -Dv4l2-probe=true \
+   -Dv4l2-libv4l2=disabled \
+   -Dvpx=enabled \
+   -Dwavpack=disabled \
+-- 
+2.56.0
+

@@ -1,5 +1,10 @@
 # F(x)tec Pro1-X on libcamera: IMX582 rear (3992x3000 native in libcamera 0.4), S5K4H7 front.
 # Resolutions follow jolla-camera's key names (see droid-config-victara jolla-camera-hw.txt).
+# maxVideoResolution caps the sizes jolla-camera offers for video: it otherwise takes the
+# largest 16:9 size libcamera lists (3200x1800), beyond the Venus encoder (1080p30 class).
+[apps/jolla-camera]
+maxVideoResolution='1920x1080'
+
 [apps/jolla-camera/primary/image]
 imageResolution='3992x3000'
 viewfinderResolution='1280x960'

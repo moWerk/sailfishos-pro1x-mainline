@@ -41,6 +41,8 @@ chroot $R /bin/sh -c '
 # device makes firejail's fcopy abort, and with it every sandboxed app (camera, browser).
 tar --no-same-owner -xf build/modules.tar -C $R
 chmod -R u+w $R/lib/modules
+# venus firmware comes from linux-firmware, not the Fxtec image: scripts/fetch-venus-fw.sh
+[ -f build/fw/lib/firmware/qcom/venus-6.0/venus.mbn ] || { echo 'stage2: run scripts/fetch-venus-fw.sh first'; exit 1; }
 cp -a --no-preserve=ownership build/fw/lib/firmware $R/lib/
 chroot $R /sbin/depmod -a 7.1.0
 

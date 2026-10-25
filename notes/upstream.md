@@ -49,6 +49,11 @@ Each entry: what, where, evidence. None sent yet; the human author decides and s
   (Dmitry Baryshkov's series, DT patches applied by Bjorn Andersson on 2026-07-08) as `device/kernel/patches/sfos-venus.patch`.
   Once the base kernel carries that node, only the board `&venus` block remains, and it belongs
   in the pro1x DT for NixOS too.
+- Venus firmware: the Fxtec vendor image `qcom/sm6115/Fxtec/QX1050/venus.mbn` is
+  VIDEO.VE.6.0-00049; the venus driver requires >= 6.0.55 on QCM2290/SM6115 (encoder needs
+  secure buffers below 6.0.54) and fails the probe ("Firmware v6.0.49 < v6.0.55", -EINVAL).
+  linux-firmware's `qcom/venus-6.0/venus.mbn` (6.0-00055, the driver default) loads on the
+  Pro1-X, so the board node needs no `firmware-name` (the device accepts that signature).
 - The panelgap patches are broken (seen earlier in this port); a LICENSE / Signed-off-by for
   the patch series would help any redistribution.
 
@@ -81,6 +86,13 @@ Each entry: what, where, evidence. None sent yet; the human author decides and s
   droidmedia: H.264 from Venus through v4l2h264enc, AAC from gst-libav's `avenc_aac`, which
   is registered with rank none and therefore never chosen by encodebin (port sets
   `GST_PLUGIN_FEATURE_RANK=avenc_aac:primary` in the session environment).
+
+## sailfishos/gst-plugins-good
+- The spec builds video4linux2 with `-Dv4l2-probe=false`, which compiles out the registration
+  of the stateful V4L2 codec elements (v4l2h264enc, v4l2h264dec, ...). Hybris devices encode
+  through droidmedia; native ports with a stateful V4L2 codec (Qualcomm Venus)
+  get no hardware encoder. `patches/gst-plugins-good/0001-…` flips it (cost: every /dev/video*
+  is opened once when the registry is rebuilt).
 
 ## libcamera
 - `libcamerasrc` has no caps query handler on its src pad: before negotiation it answers
