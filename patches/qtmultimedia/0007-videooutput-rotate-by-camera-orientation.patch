@@ -1,0 +1,226 @@
+From fa698ccbcd9bbe2ea0747ec9bfb8857c1eda1b8b Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Sun, 25 Oct 2026 02:50:44 +0100
+Subject: [PATCH 7/7] VideoOutput: rotate camera frames by the camera
+ orientation (default renderer), Release 8
+
+jolla-camera never sets VideoOutput.orientation: on hybris the video texture
+backend rotates the viewfinder by the image-orientation tag droidcamsrc puts
+on its viewfinder stream. Qt's own renderer ignores that tag, and libcamerasrc
+sends none, so the viewfinder showed raw landscape sensor frames (Pro1-X:
+90 degrees counter-clockwise).
+
+With the default renderer backend and autoOrientation off, the camera's
+QCameraInfo::orientation is now added to the orientation used for
+rendering, geometry and point/rect mapping (renderOrientation()). The
+orientation property keeps the value the application set. The texture
+backend and autoOrientation are unchanged.
+
+Contract change for this renderer: an application that compensates the
+camera orientation itself by setting VideoOutput.orientation now rotates
+twice. jolla-camera does not. Front cameras are not mirrored here (the
+texture backend mirrors them).
+
+LLMGD-0 A0
+---
+ rpm/qtmultimedia.spec                         |  2 +-
+ .../qdeclarativevideooutput_p.h               |  4 ++
+ .../qdeclarativevideooutput.cpp               | 50 +++++++++++++++----
+ .../qdeclarativevideooutput_render.cpp        |  4 +-
+ 4 files changed, 48 insertions(+), 12 deletions(-)
+
+diff --git a/rpm/qtmultimedia.spec b/rpm/qtmultimedia.spec
+index cc3caeda..bb5b44d0 100644
+--- a/rpm/qtmultimedia.spec
++++ b/rpm/qtmultimedia.spec
+@@ -1,7 +1,7 @@
+ Name:       qt5-qtmultimedia
+ Summary:    Qt Multimedia module
+ Version:    5.6.2+v4l.20261024000000.qx1050
+-Release:    7%{?dist}
++Release:    8%{?dist}
+ License:    (LGPLv2 or LGPLv3) with exception or GPLv3 or Qt Commercial
+ URL:        https://www.qt.io/
+ Source0:    %{name}-%{version}.tar.bz2
+diff --git a/src/multimedia/qtmultimediaquicktools_headers/qdeclarativevideooutput_p.h b/src/multimedia/qtmultimediaquicktools_headers/qdeclarativevideooutput_p.h
+index 0f34cc03..f9ae0db5 100644
+--- a/src/multimedia/qtmultimediaquicktools_headers/qdeclarativevideooutput_p.h
++++ b/src/multimedia/qtmultimediaquicktools_headers/qdeclarativevideooutput_p.h
+@@ -94,6 +94,8 @@ public:
+ 
+     int orientation() const;
+     void setOrientation(int);
++    // orientation() plus the rotation the source itself needs (see _q_updateCameraInfo)
++    int renderOrientation() const { return m_orientation + m_sourceOrientation; }
+ 
+     bool autoOrientation() const;
+     void setAutoOrientation(bool);
+@@ -143,6 +145,7 @@ private Q_SLOTS:
+ 
+ private:
+     bool createBackend(QMediaService *service);
++    void setSourceOrientation(int orientation);
+ 
+     static void filter_append(QQmlListProperty<QAbstractVideoFilter> *property, QAbstractVideoFilter *value);
+     static int filter_count(QQmlListProperty<QAbstractVideoFilter> *property);
+@@ -163,6 +166,7 @@ private:
+     QRectF m_lastRect;      // Cache of last rect to avoid recalculating geometry
+     QRectF m_contentRect;   // Destination pixel coordinates, unclipped
+     int m_orientation;
++    int m_sourceOrientation;
+     bool m_autoOrientation;
+     QVideoOutputOrientationHandler *m_screenOrientationHandler;
+ 
+diff --git a/src/qtmultimediaquicktools/qdeclarativevideooutput.cpp b/src/qtmultimediaquicktools/qdeclarativevideooutput.cpp
+index cae6cf00..503b6eb0 100644
+--- a/src/qtmultimediaquicktools/qdeclarativevideooutput.cpp
++++ b/src/qtmultimediaquicktools/qdeclarativevideooutput.cpp
+@@ -127,6 +127,7 @@ QDeclarativeVideoOutput::QDeclarativeVideoOutput(QQuickItem *parent) :
+     m_fillMode(PreserveAspectFit),
+     m_geometryDirty(true),
+     m_orientation(0),
++    m_sourceOrientation(0),
+     m_autoOrientation(false),
+     m_screenOrientationHandler(0)
+ {
+@@ -317,10 +318,41 @@ void QDeclarativeVideoOutput::_q_updateCameraInfo()
+                 if (m_autoOrientation)
+                     _q_screenOrientationChanged(m_screenOrientationHandler->currentOrientation());
+             }
++
++            // Without autoOrientation the frames are drawn as the sensor delivers them. The
++            // hybris video texture backend rotates them by the image-orientation tag of the
++            // viewfinder stream (droidcamsrc); with Qt's own renderer (libcamerasrc, which
++            // sends no such tag) rotate by the camera's mounting orientation instead.
++            int sourceOrientation = 0;
++#ifndef QT_NO_DYNAMIC_CAST
++            if (!m_autoOrientation && !info.isNull()
++                    && dynamic_cast<QDeclarativeVideoRendererBackend *>(m_backend.data()))
++                sourceOrientation = info.orientation();
++#endif
++            setSourceOrientation(sourceOrientation);
+         }
+     } else {
+         m_cameraInfo = QCameraInfo();
++        setSourceOrientation(0);
++    }
++}
++
++void QDeclarativeVideoOutput::setSourceOrientation(int orientation)
++{
++    if (m_sourceOrientation == orientation)
++        return;
++
++    const bool oldAspect = qIsDefaultAspect(renderOrientation());
++    m_sourceOrientation = orientation;
++    m_geometryDirty = true;
++
++    if (oldAspect != qIsDefaultAspect(renderOrientation())) {
++        m_nativeSize.transpose();
++        setImplicitWidth(m_nativeSize.width());
++        setImplicitHeight(m_nativeSize.height());
+     }
++
++    update();
+ }
+ 
+ /*!
+@@ -360,7 +392,7 @@ void QDeclarativeVideoOutput::_q_updateNativeSize()
+         return;
+ 
+     QSize size = m_backend->nativeSize();
+-    if (!qIsDefaultAspect(m_orientation)) {
++    if (!qIsDefaultAspect(renderOrientation())) {
+         size.transpose();
+     }
+ 
+@@ -476,8 +508,8 @@ void QDeclarativeVideoOutput::setOrientation(int orientation)
+ 
+     // Otherwise, a new orientation
+     // See if we need to change aspect ratio orientation too
+-    bool oldAspect = qIsDefaultAspect(m_orientation);
+-    bool newAspect = qIsDefaultAspect(orientation);
++    bool oldAspect = qIsDefaultAspect(renderOrientation());
++    bool newAspect = qIsDefaultAspect(orientation + m_sourceOrientation);
+ 
+     m_orientation = orientation;
+ 
+@@ -577,7 +609,7 @@ QRectF QDeclarativeVideoOutput::sourceRect() const
+ {
+     // We might have to transpose back
+     QSizeF size = m_nativeSize;
+-    if (!qIsDefaultAspect(m_orientation)) {
++    if (!qIsDefaultAspect(renderOrientation())) {
+         size.transpose();
+     }
+ 
+@@ -611,7 +643,7 @@ QPointF QDeclarativeVideoOutput::mapNormalizedPointToItem(const QPointF &point)
+     qreal dx = point.x();
+     qreal dy = point.y();
+ 
+-    if (qIsDefaultAspect(m_orientation)) {
++    if (qIsDefaultAspect(renderOrientation())) {
+         dx *= m_contentRect.width();
+         dy *= m_contentRect.height();
+     } else {
+@@ -619,7 +651,7 @@ QPointF QDeclarativeVideoOutput::mapNormalizedPointToItem(const QPointF &point)
+         dy *= m_contentRect.width();
+     }
+ 
+-    switch (qNormalizedOrientation(m_orientation)) {
++    switch (qNormalizedOrientation(renderOrientation())) {
+         case 0:
+         default:
+             return m_contentRect.topLeft() + QPointF(dx, dy);
+@@ -663,7 +695,7 @@ QPointF QDeclarativeVideoOutput::mapPointToSource(const QPointF &point) const
+ {
+     QPointF norm = mapPointToSourceNormalized(point);
+ 
+-    if (qIsDefaultAspect(m_orientation))
++    if (qIsDefaultAspect(renderOrientation()))
+         return QPointF(norm.x() * m_nativeSize.width(), norm.y() * m_nativeSize.height());
+     else
+         return QPointF(norm.x() * m_nativeSize.height(), norm.y() * m_nativeSize.width());
+@@ -709,7 +741,7 @@ QPointF QDeclarativeVideoOutput::mapPointToSourceNormalized(const QPointF &point
+     const qreal one(1.0f);
+ 
+     // For now, the origin of the source rectangle is 0,0
+-    switch (qNormalizedOrientation(m_orientation)) {
++    switch (qNormalizedOrientation(renderOrientation())) {
+         case 0:
+         default:
+             return QPointF(nx, ny);
+@@ -762,7 +794,7 @@ QPointF QDeclarativeVideoOutput::mapPointToItem(const QPointF &point) const
+ 
+     // Just normalize and use that function
+     // m_nativeSize is transposed in some orientations
+-    if (qIsDefaultAspect(m_orientation))
++    if (qIsDefaultAspect(renderOrientation()))
+         return mapNormalizedPointToItem(QPointF(point.x() / m_nativeSize.width(), point.y() / m_nativeSize.height()));
+     else
+         return mapNormalizedPointToItem(QPointF(point.x() / m_nativeSize.height(), point.y() / m_nativeSize.width()));
+diff --git a/src/qtmultimediaquicktools/qdeclarativevideooutput_render.cpp b/src/qtmultimediaquicktools/qdeclarativevideooutput_render.cpp
+index fbe8a62f..b76a20e9 100644
+--- a/src/qtmultimediaquicktools/qdeclarativevideooutput_render.cpp
++++ b/src/qtmultimediaquicktools/qdeclarativevideooutput_render.cpp
+@@ -241,7 +241,7 @@ void QDeclarativeVideoRendererBackend::updateGeometry()
+         const qreal totalWidth = normalizedViewport.width() * relativeWidth;
+         const qreal totalHeight = normalizedViewport.height() * relativeHeight;
+ 
+-        if (qIsDefaultAspect(q->orientation())) {
++        if (qIsDefaultAspect(q->renderOrientation())) {
+             m_sourceTextureRect = QRectF(totalOffsetLeft, totalOffsetTop,
+                                          totalWidth, totalHeight);
+         } else {
+@@ -347,7 +347,7 @@ QSGNode *QDeclarativeVideoRendererBackend::updatePaintNode(QSGNode *oldNode,
+ 
+     // Negative rotations need lots of %360
+     videoNode->setTexturedRectGeometry(m_renderedRect, m_sourceTextureRect,
+-                                       qNormalizedOrientation(q->orientation()));
++                                       qNormalizedOrientation(q->renderOrientation()));
+     if (m_frameChanged) {
+         QSGVideoNode::FrameFlags flags = 0;
+         if (isFrameModified)
+-- 
+2.56.0
+

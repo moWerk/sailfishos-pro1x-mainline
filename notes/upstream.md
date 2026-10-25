@@ -76,6 +76,13 @@ Each entry: what, where, evidence. None sent yet; the human author decides and s
   libcamerasrc) leaves the shutter disabled forever. `0004-…` reads it once after connecting.
 - Camera enumeration knows only /dev/video* (v4l2src); `0002-…` enumerates libcamera cameras
   through `libcameraprovider` and selects them by `camera-name`.
+- Qt's default video renderer ignores the `image-orientation` tag, which the hybris video
+  texture backend uses to rotate droidcamsrc's viewfinder; apps like jolla-camera never set
+  VideoOutput.orientation and rely on it. `0007-…` makes the default renderer add the
+  camera's QCameraInfo::orientation (autoOrientation off). Contract change: an app that sets
+  VideoOutput.orientation to compensate the camera itself now double-rotates. Front cameras
+  are not mirrored by it (the texture backend mirrors them). `0006-…` fixes 0002, which
+  converted libcamera's Rotation like droidcamsrc's Android angle (it is Qt's convention).
 
 ## jolla-camera / sailjail profile
 - The sandbox whitelists specific /usr/share dirs; /usr/share/libcamera (IPA modules'

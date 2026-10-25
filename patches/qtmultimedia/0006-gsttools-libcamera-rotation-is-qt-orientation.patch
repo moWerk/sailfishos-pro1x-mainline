@@ -1,0 +1,42 @@
+From a7c897ec3c16812ca4343dea667cdb63738ac203 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Sun, 25 Oct 2026 02:50:44 +0100
+Subject: [PATCH 6/7] gsttools: libcamera Rotation is already
+ QCameraInfo::orientation
+
+The libcamera enumeration converted the Rotation property with (720 - x),
+the conversion droidcamsrc's Android sensor angle needs. libcamera's
+Rotation (the device tree "rotation") follows Qt's convention: Qt documents
+a sensor whose top is at the screen's right edge as 270, Android as 90, and
+libcamera's own Android HAL reports 360 - Rotation. With the conversion,
+jolla-camera wrote EXIF orientations 180 degrees off (Pro1-X: photos upside
+down).
+
+LLMGD-0 A0
+---
+ src/gsttools/qgstutils.cpp | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/src/gsttools/qgstutils.cpp b/src/gsttools/qgstutils.cpp
+index 48d20ca4..42c21671 100644
+--- a/src/gsttools/qgstutils.cpp
++++ b/src/gsttools/qgstutils.cpp
+@@ -622,10 +622,14 @@ QVector<QGstUtils::CameraInfo> QGstUtils::enumerateCameras(GstElementFactory *fa
+                             gst_structure_get_int(props, "api.libcamera.Rotation", &rotation);
+                             gst_structure_free(props);
+                         }
++                        // libcamera's Rotation (the DT "rotation") is already
++                        // QCameraInfo::orientation. The (720 - x) above converts droidcamsrc's
++                        // Android angle, which counts the other way (libcamera's own Android
++                        // HAL reports 360 - Rotation).
+                         const CameraInfo info = {
+                                 QString::fromUtf8(displayName),
+                                 QString::fromUtf8(displayName),
+-                                (720 - rotation) % 360,
++                                rotation % 360,
+                                 location == 0 ? QCamera::FrontFace
+                                               : location == 1 ? QCamera::BackFace
+                                                               : QCamera::UnspecifiedPosition,
+-- 
+2.56.0
+
