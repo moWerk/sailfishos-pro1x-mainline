@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: moWerk <mo@mowerk.net>
 Date: Sun, 25 Oct 2026 17:02:10 +0100
-Subject: [PATCH 10/10] software_isp: Compute an autofocus sharpness value
+Subject: [PATCH] software_isp: Compute an autofocus sharpness value
 
 Fill SwIspStats::variance, the input of the libipa Af algorithm, for 10-bit
 packed Bayer data: the mean squared difference of same colour neighbours
@@ -18,11 +18,11 @@ IPA sets the focus only if the camera has a lens.
 LLMGD-0 A0
 ---
  .../internal/software_isp/swisp_stats.h       |  4 ++
- .../internal/software_isp/swstats_cpu.h       | 13 +++++
+ .../internal/software_isp/swstats_cpu.h       | 14 +++++
  src/ipa/simple/algorithms/af.cpp              |  4 ++
  src/ipa/simple/soft_simple.cpp                |  3 +-
  src/libcamera/software_isp/swstats_cpu.cpp    | 53 ++++++++++++++++++-
- 5 files changed, 75 insertions(+), 2 deletions(-)
+ 5 files changed, 76 insertions(+), 2 deletions(-)
 
 diff --git a/include/libcamera/internal/software_isp/swisp_stats.h b/include/libcamera/internal/software_isp/swisp_stats.h
 index 43ca85b2..2f24f918 100644
@@ -40,7 +40,7 @@ index 43ca85b2..2f24f918 100644
  
  } /* namespace libcamera */
 diff --git a/include/libcamera/internal/software_isp/swstats_cpu.h b/include/libcamera/internal/software_isp/swstats_cpu.h
-index cd5303a5..9cc24794 100644
+index cd5303a5..2b233524 100644
 --- a/include/libcamera/internal/software_isp/swstats_cpu.h
 +++ b/include/libcamera/internal/software_isp/swstats_cpu.h
 @@ -61,6 +61,8 @@ public:
@@ -52,7 +52,7 @@ index cd5303a5..9cc24794 100644
  	}
  
  	void processLine2(uint32_t frame, unsigned int y, const uint8_t *src[], unsigned int statsBufferIndex = 0)
-@@ -103,6 +105,14 @@ private:
+@@ -103,6 +105,15 @@ private:
  	void statsBGGR12PLine0(const uint8_t *src[], SwIspStats &stats);
  	void statsGBRG12PLine0(const uint8_t *src[], SwIspStats &stats);
  
@@ -60,14 +60,15 @@ index cd5303a5..9cc24794 100644
 +	void sharpness10PLine0(const uint8_t *src[], SwIspStats &stats);
 +	bool inSharpnessWindow(unsigned int y) const
 +	{
-+		return y >= sharpnessWindow_.y &&
-+		       y < sharpnessWindow_.y + sharpnessWindow_.height;
++		const unsigned int top = static_cast<unsigned int>(sharpnessWindow_.y);
++
++		return y >= top && y < top + sharpnessWindow_.height;
 +	}
 +
  	void processBayerFrame2(MappedFrameBuffer &in);
  
  	processFrameFn processFrame_;
-@@ -115,6 +125,9 @@ private:
+@@ -115,6 +126,9 @@ private:
  	unsigned int ySkipMask_;
  
  	Rectangle window_;
