@@ -1,0 +1,298 @@
+diff --git a/hexagonrpcd/interface/sns_registry.c b/hexagonrpcd/interface/sns_registry.c
+new file mode 100644
+index 0000000..65cc6f6
+--- /dev/null
++++ b/hexagonrpcd/interface/sns_registry.c
+@@ -0,0 +1,35 @@
++/*
++ * Sensor registry property interface - method definitions
++ *
++ * This file is part of HexagonRPC.
++ *
++ * HexagonRPC is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ */
++
++#include <stdint.h>
++#include <libhexagonrpc/hexagonrpc.h>
++
++#include "sns_registry.h"
++
++/*
++ * get_property(in sequence<char> name, rout sequence<char> value)
++ *
++ * Observed on a SM6115 ADSP (Android 11 firmware): the sensor framework asks for
++ * "hw_platform" with a 200 byte value buffer. The input words are
++ * { name length including NUL, value buffer length }.
++ */
++static struct hrpc_arg_def_interp4 sns_registry_get_property_args[] = {
++	{ HRPC_ARG_BLOB_SEQ, sizeof(char) },
++	{ HRPC_ARG_OUT_BLOB_SEQ, sizeof(char) },
++};
++
++const struct hrpc_method_def_interp4 sns_registry_get_property_def = {
++	.msg_id = 0,
++	.n_args = HRPC_ARRAY_SIZE(sns_registry_get_property_args),
++	.args = sns_registry_get_property_args,
++	.n_inner_types = 0,
++	.inner_types = NULL,
++};
+diff --git a/hexagonrpcd/interface/sns_registry.h b/hexagonrpcd/interface/sns_registry.h
+new file mode 100644
+index 0000000..fdaeae4
+--- /dev/null
++++ b/hexagonrpcd/interface/sns_registry.h
+@@ -0,0 +1,19 @@
++/*
++ * Sensor registry property interface - method definitions
++ *
++ * This file is part of HexagonRPC.
++ *
++ * HexagonRPC is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ */
++
++#ifndef INTERFACE_SNS_REGISTRY_H
++#define INTERFACE_SNS_REGISTRY_H
++
++#include <libhexagonrpc/hexagonrpc.h>
++
++extern const struct hrpc_method_def_interp4 sns_registry_get_property_def;
++
++#endif /* INTERFACE_SNS_REGISTRY_H */
+diff --git a/hexagonrpcd/listener.h b/hexagonrpcd/listener.h
+index 8938b87..476f320 100644
+--- a/hexagonrpcd/listener.h
++++ b/hexagonrpcd/listener.h
+@@ -46,6 +46,7 @@ extern const struct fastrpc_interface localctl_interface;
+ 
+ extern const struct fastrpc_interface apps_mem_interface;
+ extern const struct fastrpc_interface apps_std_interface;
++extern const struct fastrpc_interface sns_registry_interface;
+ 
+ int run_fastrpc_listener(int fd,
+ 			 size_t n_ifaces,
+diff --git a/hexagonrpcd/meson.build b/hexagonrpcd/meson.build
+index 11244ef..8ae0aae 100644
+--- a/hexagonrpcd/meson.build
++++ b/hexagonrpcd/meson.build
+@@ -5,6 +5,7 @@ executable('hexagonrpcd',
+   'interface/adsp_listener.c',
+   'interface/apps_mem.c',
+   'interface/apps_std.c',
++  'interface/sns_registry.c',
+   'hexagonfs.c',
+   'hexagonfs_mapped.c',
+   'hexagonfs_plat_subtype_name.c',
+@@ -14,6 +15,7 @@ executable('hexagonrpcd',
+   'localctl.c',
+   'rpcd.c',
+   'rpcd_builder.c',
++  'sns_registry.c',
+   c_args : cflags,
+   include_directories : include,
+   install : true,
+diff --git a/hexagonrpcd/rpcd.c b/hexagonrpcd/rpcd.c
+index 38d5c00..c8f9295 100644
+--- a/hexagonrpcd/rpcd.c
++++ b/hexagonrpcd/rpcd.c
+@@ -43,6 +43,7 @@
+ #include "listener.h"
+ #include "localctl.h"
+ #include "rpcd_builder.h"
++#include "sns_registry.h"
+ 
+ static int register_fastrpc_listener(int fd)
+ {
+@@ -191,7 +192,7 @@ static void *start_reverse_tunnel(int fd, const char *device_dir, const char *ds
+ {
+ 	struct fastrpc_interface **ifaces;
+ 	struct hexagonfs_dirent *root_dir;
+-	size_t n_ifaces = 3;
++	size_t n_ifaces = 4;
+ 	int ret;
+ 
+ 	ifaces = malloc(sizeof(struct fastrpc_interface) * n_ifaces);
+@@ -210,6 +211,7 @@ static void *start_reverse_tunnel(int fd, const char *device_dir, const char *ds
+ 	// Dynamic interfaces with no hardcoded handle
+ 	ifaces[1] = fastrpc_apps_std_init(root_dir);
+ 	ifaces[2] = fastrpc_apps_mem_init(fd);
++	ifaces[3] = fastrpc_sns_registry_init(device_dir);
+ 
+ 	ret = register_fastrpc_listener(fd);
+ 	if (ret)
+diff --git a/hexagonrpcd/sns_registry.c b/hexagonrpcd/sns_registry.c
+new file mode 100644
+index 0000000..ad45a40
+--- /dev/null
++++ b/hexagonrpcd/sns_registry.c
+@@ -0,0 +1,139 @@
++/*
++ * Sensor registry property interface
++ *
++ * The ADSP sensor framework asks the application processor for platform
++ * properties (hw_platform, ...) that Android keeps in sysfs or system properties.
++ * They are looked up in <root>/properties/<name>, then <root>/socinfo/<name>.
++ *
++ * This file is part of HexagonRPC.
++ *
++ * HexagonRPC is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ */
++
++#include <libhexagonrpc/error.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++#include "interface/sns_registry.h"
++#include "listener.h"
++#include "sns_registry.h"
++
++struct sns_registry_ctx {
++	char *prefix;
++};
++
++static int read_property(const char *prefix, const char *dir,
++			 const char *name, char *out, size_t out_size)
++{
++	char *path;
++	FILE *f;
++	size_t n;
++
++	path = malloc(strlen(prefix) + strlen(dir) + strlen(name) + 3);
++	if (path == NULL)
++		return -1;
++
++	sprintf(path, "%s/%s/%s", prefix, dir, name);
++
++	f = fopen(path, "r");
++	free(path);
++	if (f == NULL)
++		return -1;
++
++	n = fread(out, 1, out_size - 1, f);
++	fclose(f);
++
++	while (n > 0 && (out[n - 1] == '\n' || out[n - 1] == '\r'))
++		n--;
++	out[n] = '\0';
++
++	return 0;
++}
++
++static uint32_t sns_registry_get_property(void *data,
++					  const struct fastrpc_io_buffer *inbufs,
++					  struct fastrpc_io_buffer *outbufs)
++{
++	struct sns_registry_ctx *ctx = data;
++	const char *name = inbufs[1].p;
++
++	if (outbufs[0].s == 0)
++		return AEE_EBADPARM;
++
++	memset(outbufs[0].p, 0, outbufs[0].s);
++
++	if (inbufs[1].s == 0 || name[inbufs[1].s - 1] != '\0')
++		return AEE_EBADPARM;
++
++	// The name becomes a file name: no directories.
++	if (name[0] == '\0' || strchr(name, '/') != NULL || name[0] == '.')
++		return AEE_EBADPARM;
++
++	if (read_property(ctx->prefix, "properties", name,
++			  outbufs[0].p, outbufs[0].s) == 0
++	 || read_property(ctx->prefix, "socinfo", name,
++			  outbufs[0].p, outbufs[0].s) == 0) {
++		fprintf(stderr, "sns_registry: %s = \"%s\"\n", name,
++				(const char *) outbufs[0].p);
++		return 0;
++	}
++
++	fprintf(stderr, "sns_registry: no property %s\n", name);
++	memset(outbufs[0].p, 0, outbufs[0].s);
++
++	return AEE_ERESOURCENOTFOUND;
++}
++
++static const struct fastrpc_function_impl sns_registry_procs[] = {
++	[0] = { .def = &sns_registry_get_property_def,
++		.impl = sns_registry_get_property, },
++};
++
++const struct fastrpc_interface sns_registry_interface = {
++	.name = "sns_registry",
++	.n_procs = 1,
++	.procs = sns_registry_procs,
++};
++
++struct fastrpc_interface *fastrpc_sns_registry_init(const char *prefix)
++{
++	struct fastrpc_interface *iface;
++	struct sns_registry_ctx *ctx;
++
++	iface = malloc(sizeof(*iface));
++	if (iface == NULL)
++		return NULL;
++
++	ctx = calloc(1, sizeof(*ctx));
++	if (ctx == NULL)
++		goto err_free_iface;
++
++	ctx->prefix = strdup(prefix);
++	if (ctx->prefix == NULL)
++		goto err_free_ctx;
++
++	memcpy(iface, &sns_registry_interface, sizeof(*iface));
++	iface->data = ctx;
++
++	return iface;
++
++err_free_ctx:
++	free(ctx);
++err_free_iface:
++	free(iface);
++
++	return NULL;
++}
++
++void fastrpc_sns_registry_deinit(struct fastrpc_interface *iface)
++{
++	struct sns_registry_ctx *ctx = iface->data;
++
++	free(ctx->prefix);
++	free(ctx);
++	free(iface);
++}
+diff --git a/hexagonrpcd/sns_registry.h b/hexagonrpcd/sns_registry.h
+new file mode 100644
+index 0000000..fbd3f1e
+--- /dev/null
++++ b/hexagonrpcd/sns_registry.h
+@@ -0,0 +1,20 @@
++/*
++ * Sensor registry property interface
++ *
++ * This file is part of HexagonRPC.
++ *
++ * HexagonRPC is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ */
++
++#ifndef SNS_REGISTRY_H
++#define SNS_REGISTRY_H
++
++#include "listener.h"
++
++struct fastrpc_interface *fastrpc_sns_registry_init(const char *prefix);
++void fastrpc_sns_registry_deinit(struct fastrpc_interface *iface);
++
++#endif

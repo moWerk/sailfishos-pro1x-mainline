@@ -1,0 +1,17 @@
+[Unit]
+Description=Hexagon RPC daemon: serves the ADSP sensor configuration (SSC sensors)
+# Not enabled yet: the first runs on SailfishOS happen by hand with the author present,
+# because a sensor stack crash takes the ADSP (and audio) down until reboot.
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+ExecStartPre=/usr/bin/droid/qx1050-hexagonrpcd-prepare.sh
+ExecStart=/usr/bin/hexagonrpcd -f /dev/fastrpc-adsp -d adsp -s -R /var/lib/hexagonrpcd
+# A dead ADSP is not fixed by restarting the daemon; try a few times, then stop.
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

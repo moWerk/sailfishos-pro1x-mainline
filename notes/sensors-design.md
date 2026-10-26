@@ -43,6 +43,48 @@ the first bring-up sessions.
 4. mce then gets ALS and proximity through sensorfw as on every other device (double-tap
    wake and the kbd backlight ALS profile are already configured for it).
 
+## State 2026-10-26: step 1 done, step 2 prepared
+
+- Built with mb2 (port/packages/, upstream trees copied in like qrtr):
+  - `protobuf-c` 1.5.2 (not in the SFOS repos; builds against Jolla's protobuf 25.1).
+  - `libssc` 0.4.4 + `libssc-tools` (`ssccli`). The mock SSC server and the tests are
+    switched off (rpm/0001-…: they need python3-embed).
+  - `hexagonrpc` 0.5.0+git40e5041: PR 27 head + nyymi609's sns_registry patch, both applied
+    in the tree. The SDK kernel headers lack `misc/fastrpc.h`, so the v6.18 UAPI header is
+    in `include/`. Upstream units dropped (they install to lib64/systemd and lack `-R`).
+- libqmi 1.34 from native-common is built with QRTR support (`qmi_qrtr_supported=1`).
+- Adaptation (droid-config-qx1050 sparse):
+  - `/usr/share/qx1050/hexagonfs`: the data from fxtec-pro1x-nixos device/hexagonfs
+    (collected from nyymi609's unit; the registry holds default placement/calibration, so a
+    per-unit dump with sensors-collect.sh may be wanted later).
+  - `/usr/bin/droid/qx1050-hexagonrpcd-prepare.sh`: port of the NixOS ExecStartPre.
+  - `qx1050-hexagonrpcd.service`: **not enabled**.
+- On pro1x2 (SFOS): the four RPMs and the files are installed. Nothing has been started, and
+  the ADSP recovery setting is untouched.
+- Observation (read-only `qrtr-lookup`): the ADSP (node 5) already announces service 400,
+  "Snapdragon Sensor Core", with no hexagonrpcd running. So the service exists before the
+  registry is served. Whether sensors answer without the registry is unknown; do not probe
+  it without the author present.
+- sensorfw-qt5-devel (jolla repo) ships `deviceadaptor.h`, `iioadaptor.h`, `sysfsadaptor.h`
+  and `libsensorfw-qt5.so`. The adaptor can therefore be an out-of-tree plugin RPM, with no
+  sensorfw fork.
+
+### First run on SailfishOS (author present, ~10 minutes)
+
+1. Re-arm the SFOS one-shot first (`DATA=/mnt/nixos sh /root/sfos-boot-once.sh`). A
+   crash-reboot then lands in SFOS again instead of NixOS.
+2. Terminal A: `journalctl -f`. Terminal B: `dmesg -w | grep -i -e adsp -e fastrpc -e remoteproc`.
+3. `systemctl start qx1050-hexagonrpcd` (the prepare step sets the adsp remoteproc to
+   `recovery=disabled`). Expected: the daemon stays up, and the ADSP logs registry reads.
+4. `ssccli --sensor light`, then `proximity` (cover the top of the screen), then
+   `accelerometer` (turn the phone), `magnetometer`, `compass`, each with `--timeout 10`.
+5. Failure modes:
+   - "adsp crashed" in dmesg: audio is gone until reboot (the reprobe workaround cannot
+     help). Collect the journal, then reboot.
+   - A hang: hold power for 10 s. Step 1 brings it back to SFOS.
+6. When 4 prints samples, the next step is the sensorfw adaptor (step 3 above). Enable the
+   unit only after several clean boots with a manual start.
+
 ## Why it was not built on 2026-10-24 (and the correction)
 
 The SDK target image used for the rootfs (`localhost/sfos-target-aarch64:5.1.0.11`) has
