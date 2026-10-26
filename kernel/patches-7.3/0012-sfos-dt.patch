@@ -1,0 +1,66 @@
+From 3b04b0788cc7f58cc09463246509bf087fa4b500 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Mon, 26 Oct 2026 14:24:17 +0100
+Subject: [PATCH 12/16] sfos-dt
+
+SailfishOS build only (applied after the pro1x-* series):
+
+- keyboard backlight: the LED on tlmm 103 is active-low on the hardware (writing 1
+  turns it off, observed on SailfishOS where mce drives it); declare it so.
+- the two yellow Fn keys report KEY_RIGHTALT instead of KEY_FN: SailfishOS's Qt 5.6
+  evdev keyboard handler drops scancodes outside its keymap, and the Pro1 port on
+  hybris used AltGr (level 3) for the Fn legends, so the xkb layout can do the same.
+- keyboard slide (hall switch): inverted on purpose. mce reads SW_KEYPAD_SLIDE the N900
+  way (1 = closed), the opposite of input-event-codes.h (1 = slid out), and has no
+  option to invert it; the hybris kernels reported it mce's way. Until mce gains an
+  inversion setting, the SailfishOS kernel reports it the way mce expects.
+
+
+LLMGD-0 A0
+---
+ arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts b/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
+index c6dc4722f..b29c33e07 100644
+--- a/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
++++ b/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
+@@ -81,7 +81,7 @@ key-home {
+ 		key-super-l {
+ 			label = "Super Left";
+ 			gpios = <&tlmm 106 GPIO_ACTIVE_LOW>;
+-			linux,code = <KEY_FN>;
++			linux,code = <KEY_RIGHTALT>;
+ 			debounce-interval = <15>;
+ 			linux,can-disable;
+ 		};
+@@ -89,7 +89,7 @@ key-super-l {
+ 		key-super-r {
+ 			label = "Super Right";
+ 			gpios = <&tlmm 112 GPIO_ACTIVE_LOW>;
+-			linux,code = <KEY_FN>;
++			linux,code = <KEY_RIGHTALT>;
+ 			debounce-interval = <15>;
+ 			linux,can-disable;
+ 		};
+@@ -129,7 +129,7 @@ hall-switch {
+ 			label = "Hall Switch";
+ 			linux,input-type = <EV_SW>;
+ 			linux,code = <SW_KEYPAD_SLIDE>;
+-			gpios = <&tlmm 96 GPIO_ACTIVE_HIGH>;
++			gpios = <&tlmm 96 GPIO_ACTIVE_LOW>;
+ 			debounce-interval = <90>;
+ 			wakeup-source;
+ 		};
+@@ -195,7 +195,7 @@ capslock-led {
+ 		kbd-backlight {
+ 			function = LED_FUNCTION_KBD_BACKLIGHT;
+ 			color = <LED_COLOR_ID_WHITE>;
+-			gpios = <&tlmm 103 GPIO_ACTIVE_HIGH>;
++			gpios = <&tlmm 103 GPIO_ACTIVE_LOW>;
+ 			default-state = "off";
+ 			pinctrl-names = "default";
+ 			pinctrl-0 = <&kbd_backlight_default>;
+-- 
+2.56.0
+

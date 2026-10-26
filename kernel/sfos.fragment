@@ -1,0 +1,60 @@
+# SailfishOS additions on top of config.aarch64 (the NixOS kernel), for the mainline
+# SFOS port. Each line answers an error of mer-kernel-check or a failing SFOS service.
+
+# cgroup v1 hierarchies SailfishOS still mounts (tmpfiles: /sys/fs/cgroup/memory/noswapping)
+CONFIG_MEMCG_V1=y
+CONFIG_CPUSETS_V1=y
+
+# quota_nld.service
+CONFIG_QUOTA_NETLINK_INTERFACE=y
+CONFIG_QFMT_V2=y
+
+# vfat SD cards and the codepage connman/udisks use
+CONFIG_NLS_UTF8=y
+
+# connman firewall and tethering (iptables legacy tables). =m where the base config has the
+# table support as a module; iptables loads them on demand.
+CONFIG_NETFILTER_XTABLES_LEGACY=y
+CONFIG_IP_NF_IPTABLES_LEGACY=m
+CONFIG_IP6_NF_IPTABLES_LEGACY=m
+CONFIG_IP_NF_FILTER=m
+CONFIG_IP_NF_MANGLE=m
+CONFIG_IP_NF_RAW=m
+CONFIG_IP_NF_SECURITY=m
+CONFIG_IP_NF_NAT=m
+CONFIG_IP_NF_TARGET_REJECT=m
+CONFIG_IP_NF_MATCH_RPFILTER=m
+CONFIG_IP6_NF_RAW=m
+CONFIG_IP6_NF_TARGET_REJECT=m
+CONFIG_IP6_NF_MATCH_RPFILTER=m
+CONFIG_NF_LOG_IPV4=y
+CONFIG_NETFILTER_XT_MATCH_CONNTRACK=m
+CONFIG_NETFILTER_XT_MATCH_MULTIPORT=m
+CONFIG_NETFILTER_XT_MATCH_HASHLIMIT=m
+CONFIG_NETFILTER_XT_MATCH_NFACCT=m
+CONFIG_NET_L3_MASTER_DEV=y
+
+# VPN plugins shipped with SailfishOS (IPsec, L2TP, PPP)
+CONFIG_INET_AH=y
+CONFIG_INET_ESP=y
+CONFIG_INET_IPCOMP=y
+CONFIG_INET6_AH=y
+CONFIG_INET6_ESP=y
+CONFIG_PPP=y
+CONFIG_PPP_ASYNC=y
+CONFIG_PPP_SYNC_TTY=y
+CONFIG_PPP_FILTER=y
+CONFIG_PPP_MULTILINK=y
+CONFIG_PPPOE=y
+CONFIG_L2TP=y
+CONFIG_L2TP_IP=y
+CONFIG_L2TP_V3=y
+
+# Bluetooth profiles bluez5 on SailfishOS uses (=m: CONFIG_BT is a module; the Nix
+# build said y, which Kconfig would demote; bluez autoloads them)
+CONFIG_BT_RFCOMM=m
+CONFIG_BT_BNEP=m
+CONFIG_BT_BNEP_MC_FILTER=y
+
+# Own kernel tree (port/kernel): name the release so it is never mistaken for the NixOS one
+CONFIG_LOCALVERSION="-qx1050"
