@@ -44,7 +44,7 @@ chmod -R u+w $R/lib/modules
 # venus firmware comes from linux-firmware, not the Fxtec image: scripts/fetch-venus-fw.sh
 [ -f build/fw/lib/firmware/qcom/venus-6.0/venus.mbn ] || { echo 'stage2: run scripts/fetch-venus-fw.sh first'; exit 1; }
 cp -a --no-preserve=ownership build/fw/lib/firmware $R/lib/
-chroot $R /sbin/depmod -a 7.1.0
+for v in $(ls $R/lib/modules); do chroot $R /sbin/depmod -a "$v"; done
 
 # 2b. Port packages built in the Platform SDK (port/packages): qrtr, rmtfs (read-only), tqftpserv.
 rpm --root $R -Uvh --replacepkgs build/rpms/*.rpm
