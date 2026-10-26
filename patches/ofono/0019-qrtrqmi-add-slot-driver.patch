@@ -1,0 +1,174 @@
+diff --git a/plugins/qrtrqmi.c b/plugins/qrtrqmi.c
+index 21103371..fe5bd481 100644
+--- a/plugins/qrtrqmi.c
++++ b/plugins/qrtrqmi.c
+@@ -15,6 +15,7 @@
+ #include <unistd.h>
+ #include <stdlib.h>
+ #include <stdio.h>
++#include <string.h>
+ #include <net/if.h>
+ 
+ #define OFONO_API_SUBJECT_TO_CHANGE
+@@ -37,6 +38,8 @@
+ #include <ofono/location-reporting.h>
+ #include <ofono/log.h>
+ #include <ofono/message-waiting.h>
++#include <ofono/slot.h>
++#include <ofono/sailfish_watch.h>
+ 
+ #include <ell/ell.h>
+ 
+@@ -52,6 +55,129 @@ struct qrtrqmi_data {
+ 	bool have_voice : 1;
+ };
+ 
++/*
++ * Slot driver for the Sailfish slot manager. A QRTR modem is built into the
++ * SoC, so there is exactly one slot. It is added once the IMEI is known and
++ * then follows the SIM atom, so that org.nemomobile.ofono.ModemManager (the
++ * SIM settings, connman and commhistoryd) sees the modem.
++ */
++enum qrtrqmi_watch_handler {
++	WATCH_HANDLER_SIM,
++	WATCH_HANDLER_SIM_STATE,
++	WATCH_HANDLER_COUNT
++};
++
++struct ofono_slot_driver_data {
++	struct ofono_slot_manager *manager;
++	struct ofono_slot *slot;
++	struct ofono_watch *watch;
++	unsigned long watch_id[WATCH_HANDLER_COUNT];
++};
++
++static struct ofono_slot_driver_data qrtrqmi_slots;
++static struct ofono_slot_driver_reg *qrtrqmi_slot_reg;
++
++static enum ofono_slot_sim_presence qrtrqmi_sim_presence(void)
++{
++	struct ofono_watch *w = qrtrqmi_slots.watch;
++
++	/* The qmimodem SIM atom is registered once the card status is known */
++	if (!w || !w->sim)
++		return OFONO_SLOT_SIM_UNKNOWN;
++
++	switch (ofono_sim_get_state(w->sim)) {
++	case OFONO_SIM_STATE_NOT_PRESENT:
++		return OFONO_SLOT_SIM_ABSENT;
++	case OFONO_SIM_STATE_INSERTED:
++	case OFONO_SIM_STATE_LOCKED_OUT:
++	case OFONO_SIM_STATE_READY:
++		return OFONO_SLOT_SIM_PRESENT;
++	case OFONO_SIM_STATE_RESETTING:
++		break;
++	}
++
++	return OFONO_SLOT_SIM_UNKNOWN;
++}
++
++static void qrtrqmi_sim_changed(struct ofono_watch *w, void *user_data)
++{
++	ofono_slot_set_sim_presence(qrtrqmi_slots.slot,
++						qrtrqmi_sim_presence());
++}
++
++static void qrtrqmi_slot_add(struct ofono_modem *modem, const char *imei)
++{
++	const char *path = ofono_modem_get_path(modem);
++	struct ofono_watch *w;
++
++	if (!qrtrqmi_slots.manager || qrtrqmi_slots.slot)
++		return;
++
++	DBG("%s", path);
++
++	w = qrtrqmi_slots.watch = ofono_watch_new(path);
++	qrtrqmi_slots.watch_id[WATCH_HANDLER_SIM] =
++		ofono_watch_add_sim_changed_handler(w,
++					qrtrqmi_sim_changed, NULL);
++	qrtrqmi_slots.watch_id[WATCH_HANDLER_SIM_STATE] =
++		ofono_watch_add_sim_state_changed_handler(w,
++					qrtrqmi_sim_changed, NULL);
++
++	qrtrqmi_slots.slot = ofono_slot_add(qrtrqmi_slots.manager, path,
++				OFONO_RADIO_ACCESS_MODE_GSM |
++				OFONO_RADIO_ACCESS_MODE_UMTS |
++				OFONO_RADIO_ACCESS_MODE_LTE,
++				imei, "00", qrtrqmi_sim_presence(),
++				OFONO_SLOT_NO_FLAGS);
++
++	ofono_slot_driver_started(qrtrqmi_slot_reg);
++}
++
++static struct ofono_slot_driver_data *qrtrqmi_slot_init(
++					struct ofono_slot_manager *m)
++{
++	qrtrqmi_slots.manager = m;
++	return &qrtrqmi_slots;
++}
++
++static unsigned int qrtrqmi_slot_start(struct ofono_slot_driver_data *d)
++{
++	/* Keep the slot manager waiting until the slot has been added */
++	return d->slot ? 0 : 1;
++}
++
++static void qrtrqmi_slot_cleanup(struct ofono_slot_driver_data *d)
++{
++	ofono_watch_remove_all_handlers(d->watch, d->watch_id);
++	ofono_watch_unref(d->watch);
++	ofono_slot_unref(d->slot);
++	memset(d, 0, sizeof(*d));
++}
++
++static const struct ofono_slot_driver qrtrqmi_slot_driver = {
++	.name		= "qrtrqmi_slot",
++	.api_version	= OFONO_SLOT_API_VERSION,
++	.init		= qrtrqmi_slot_init,
++	.start		= qrtrqmi_slot_start,
++	.cleanup	= qrtrqmi_slot_cleanup,
++};
++
++static void get_ids_cb(struct qmi_result *result, void *user_data)
++{
++	struct ofono_modem *modem = user_data;
++	char *imei = NULL;
++
++	if (!qmi_result_set_error(result, NULL))
++		imei = qmi_result_get_string(result, QMI_DMS_RESULT_IMEI);
++
++	if (!imei)
++		ofono_warn("%s: no IMEI from the modem",
++					ofono_modem_get_path(modem));
++
++	qrtrqmi_slot_add(modem, imei ? imei : "000000000000000");
++	l_free(imei);
++}
++
+ static void qrtrqmi_io_debug(const char *str, void *user_data)
+ {
+ 	const char *prefix = user_data;
+@@ -113,6 +239,10 @@ static int qrtrqmi_probe(struct ofono_modem *modem)
+ 	ofono_modem_set_data(modem, data);
+ 	ofono_modem_set_capabilities(modem, OFONO_MODEM_CAPABILITY_LTE);
+ 
++	if (!qrtrqmi_slot_reg)
++		qrtrqmi_slot_reg =
++			ofono_slot_driver_register(&qrtrqmi_slot_driver);
++
+ 	return 0;
+ }
+ 
+@@ -200,6 +330,11 @@ static void lookup_done(void *user_data)
+ 		goto error;
+ 
+ 	data->dms = qmi_qrtr_node_get_service(node, QMI_SERVICE_DMS);
++
++	if (!qrtrqmi_slots.slot)
++		qmi_service_send(data->dms, QMI_DMS_GET_IDS, NULL,
++					get_ids_cb, modem, NULL);
++
+ 	if (qmi_service_send(data->dms, QMI_DMS_GET_OPER_MODE, NULL,
+ 					get_oper_mode_cb, modem, NULL) > 0)
+ 		return;
