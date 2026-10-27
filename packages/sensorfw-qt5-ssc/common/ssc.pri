@@ -1,0 +1,12 @@
+TEMPLATE = lib
+CONFIG += plugin link_pkgconfig
+QT -= gui
+QT += dbus network
+PKGCONFIG += sensord-qt5 libssc glib-2.0 gobject-2.0 gio-2.0
+LIBS += -lsensorfw-qt5
+INCLUDEPATH += $$PWD
+HEADERS += $$PWD/sscadaptor.h
+SOURCES += $$PWD/sscadaptor.cpp
+TARGET = $$TARGET-qt5
+target.path = $$[QT_INSTALL_LIBS]/sensord-qt5
+INSTALLS += target

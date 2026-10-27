@@ -1,0 +1,27 @@
+# sensorfw-qt5-ssc: sensord adaptors for the Snapdragon Sensor Core
+
+Five out-of-tree sensord plugins (`libssc{accelerometer,gyroscope,magnetometer,als,proximity}adaptor-qt5.so`)
+that read the SSC on the ADSP through libssc 0.4.4. Built against sensorfw-qt5-devel 0.15.1 (no
+sensorfw fork). Step 3 of `notes/sensors-design.md`.
+
+- `common/sscadaptor.*`: `SscAdaptor`, a `DeviceAdaptor` with HybrisAdaptor's running/standby
+  bookkeeping and a small state machine (create -> open <-> close) over libssc's async API.
+  libssc is GLib based; sensord's Qt loop runs on the GLib default context, so no thread.
+- One plugin per sensor, shaped like the hybris adaptors (and like Affe Null's per-sensor IIO
+  adaptors): convert libssc's `measurement` signal to sensorfw units (m/s^2 -> milli-G,
+  rad/s -> milli-degrees/s, uT -> nT, lux, near/far).
+- `config/60-qx1050-ssc.conf`: the `[plugins]` mapping and the NixOS mount matrix. **Not
+  installed** by the package: mce starts ALS and proximity as soon as sensord loads it, which
+  must wait for the first supervised run with hexagonrpcd.
+
+Build: the SDK target needs our libssc, libssc-devel, protobuf-c(-devel) RPMs installed by hand
+(not in any repo); then `sfos-mb2-build.sh packages/sensorfw-qt5-ssc`. 2026-10-27: builds without
+warnings; installed on pro1x2 (inert without the config). Never run on hardware yet.
+
+Known gap: an adaptor destroyed while an async libssc call is pending gets the callback with
+a dangling pointer (sensord only destroys adaptors at exit).
+
+First run (with the author), after `ssccli` has shown samples:
+1. `cp /root/rpms/60-qx1050-ssc.conf /etc/sensorfw/sensord.conf.d/; systemctl restart sensorfwd`
+2. `journalctl -u sensorfwd -f`: "registering ssc...adaptor", then start/stop lines from mce.
+3. Settings: auto brightness, proximity during a call, rotation; check the axes.
