@@ -19,3 +19,20 @@ Done on the device itself, kernel 7.3.0-qx1050 unchanged. Took about 25 minutes 
 First boot: lipstick, pulseaudio, ofono 2.12.0+git4 (built on the 5.1 SDK target) and mobile data
 work. `policies-setup.service` fails (usb-moded not on D-Bus; not new). No 5.2 SDK target is published
 yet (releases.sailfishos.org/sdk/targets/ tops out at 5.1.0.11); builds stay on 5.1.
+
+## Checked on 5.2 without hands on the device (2026-10-27 afternoon)
+
+- Mobile data off/on through connman D-Bus works: with AutoConnect false a Disconnect takes
+  the service to idle, ofono deactivates (WDS STOP_NETWORK), rmnet_data2 goes down. A plain
+  Disconnect with AutoConnect true is undone by connman within ~25 ms (reactivates the
+  context). The UI switch still needs checking by hand.
+- Camera: libcamera 0.7.2 uses the GPU software ISP (DebayerEGL on FD610, Mesa 25.1.8; default
+  when an EGL surfaceless display opens). `cam` as defaultuser: 31.8 fps at 1280x960,
+  20.3 fps at 2000x1500, 3-12 fps at full 3992x3000. jolla-camera launched through invoker
+  runs; camss vfe0 fires 21.2 IRQ/s in the viewfinder (frames per second not proven from
+  that alone). Launching /usr/bin/jolla-camera directly (no booster) fails with CameraBin
+  "Failed to allocate required memory": a launch artefact, not a 5.2 regression.
+- 5.2 adds nemo-qtmultimedia-plugins-gstvideotexturebackend (new package, installed by the dup).
+- SIM: Settings decides multi-SIM from ofono's modems; our slot driver registers one slot, so
+  SIM settings live on the Mobile network page (no "SIM cards" page, which comes from
+  jolla-settings-networking-multisim on multi-SIM devices).

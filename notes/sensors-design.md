@@ -100,3 +100,22 @@ notes/research/research-packaging.md).
 
 Estimated effort once a build path exists: packaging and step 2 in a day, the adaptor in a
 few days including on-device calibration of axes and the proximity threshold.
+
+## Update 2026-10-27: Affe Null's sensorfw IIO refactor
+
+Michał pointed at github.com/affenull2345/sensorfw commit 945e037 (WIP, 2025-12-13, not in
+sailfishos/sensorfw): a `core/iioadaptor` base class (finds the IIO device, reads the IIO
+buffer, calls `processSample(const qreal *data, quint64 timestamp)`) and one small adaptor
+plugin per sensor (accelerometer, gyroscope, magnetometer, als, proximity, orientation) that
+only maps channel values to sensorfw data.
+
+It does not read our sensors (SSC, not IIO), but it changes step 3 of the design: instead of
+one `sscadaptor` registering under five names, an `SscAdaptor` base class with the same
+`processSample(data, timestamp)` contract (libssc GLib loop in a worker thread, one libssc
+sensor object per instance), and per-sensor plugins shaped like his. Then the per-sensor half
+could be shared with his IIO adaptors if the transport is split out (a point to raise with him
+before writing it, so two transports do not grow two copies of the same sensor code).
+
+First run (step 2) is still pending with the author present: the prepare step disables ADSP
+recovery, so an ADSP crash would freeze the phone (remoteproc recovery is enabled on all three
+DSPs on 5.2 as of today).
