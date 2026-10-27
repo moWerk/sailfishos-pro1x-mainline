@@ -9,7 +9,7 @@ pidfile="${XDG_RUNTIME_DIR:-/tmp}/pro1x-voice-call.pid"
 
 case "${1:-run}" in
 start)
-    setsid pro1x-voice-call run >/dev/null 2>&1 </dev/null &  # busybox setsid has no -f
+    setsid pro1x-voice-call run >"${XDG_RUNTIME_DIR:-/tmp}/pro1x-voice-call.log" 2>&1 </dev/null &  # busybox setsid has no -f
   exit 0
   ;;
 stop)
@@ -31,16 +31,16 @@ sig=""
 pick() { pactl list short "$1" | awk -v pat="$2" '$2 ~ pat && $2 !~ /monitor/ { print $2; exit }'; }
 
 start_keepers() {
-  sink=$(pick sinks 'platform-sound.*Voice_Call')
-  src=$(pick sources 'platform-sound.*Voice_Call')
+  sink=$(pick sinks 'Voice_Call')
+  src=$(pick sources 'Voice_Call')
   cur="$sink $src"
   [ -n "$sink" ] || return 1
   echo "keep-alive on $sink / $src"
   # SailfishOS has no paplay/parec (pulseaudio-utils would conflict with the port's pulseaudio)
-  gst-launch-1.0 -q audiotestsrc wave=silence ! audio/x-raw,rate=48000,channels=2 ! pulsesink device="$sink" >/dev/null 2>&1 &
+  gst-launch-1.0 -q audiotestsrc wave=silence ! audio/x-raw,rate=48000,channels=2 ! pulsesink device="$sink" stream-properties="props,pro1x.voice=keepalive" >/dev/null 2>&1 &
   kp="$!"
   if [ -n "$src" ]; then
-    gst-launch-1.0 -q pulsesrc device="$src" ! audio/x-raw,rate=48000,channels=1 ! fakesink >/dev/null 2>&1 &
+    gst-launch-1.0 -q pulsesrc device="$src" stream-properties="props,pro1x.voice=keepalive" ! audio/x-raw,rate=48000,channels=1 ! fakesink >/dev/null 2>&1 &
     kp="$kp $!"
   fi
 }
@@ -53,7 +53,7 @@ stop_keepers() {
 alive() {
   [ -n "$kp" ] || return 1
   for p in $kp; do kill -0 $p 2>/dev/null || return 1; done
-  [ "$cur" = "$(pick sinks 'platform-sound.*Voice_Call') $(pick sources 'platform-sound.*Voice_Call')" ]
+  [ "$cur" = "$(pick sinks 'Voice_Call') $(pick sources 'Voice_Call')" ]
 }
 
 # The DSP voice session (pro1x-voicepcm) is tied to the call: it was found to work when
