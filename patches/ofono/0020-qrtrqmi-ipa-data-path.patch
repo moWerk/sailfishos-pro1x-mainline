@@ -1,0 +1,257 @@
+diff --git a/drivers/qmimodem/gprs-context.c b/drivers/qmimodem/gprs-context.c
+index 89d68d15..abf6a315 100644
+--- a/drivers/qmimodem/gprs-context.c
++++ b/drivers/qmimodem/gprs-context.c
+@@ -768,7 +768,11 @@ static int qmi_gprs_context_bind_mux(struct ofono_gprs_context *gc,
+ 
+ 	qmi_param_append(param, 0x10, sizeof(endpoint_info), &endpoint_info);
+ 	qmi_param_append_uint8(param, 0x11, mux_id);
+-	qmi_param_append_uint32(param, 0x13, QMI_WDS_CLIENT_TYPE_TETHERED);
++
++	/* IPA modems reject the client type with InvalidArgument */
++	if (endpoint_info.endpoint_type != QMI_DATA_ENDPOINT_TYPE_EMBEDDED)
++		qmi_param_append_uint32(param, 0x13,
++					QMI_WDS_CLIENT_TYPE_TETHERED);
+ 
+ 	if (qmi_service_send(wds, QMI_WDS_BIND_MUX_DATA_PORT, param,
+ 				bind_mux_data_port_cb, gc, NULL) > 0)
+diff --git a/plugins/qrtrqmi.c b/plugins/qrtrqmi.c
+index fe5bd481..48ab1d0c 100644
+--- a/plugins/qrtrqmi.c
++++ b/plugins/qrtrqmi.c
+@@ -46,10 +46,13 @@
+ #include <drivers/qmimodem/qmi.h>
+ #include <drivers/qmimodem/dms.h>
+ #include <drivers/qmimodem/util.h>
++#include <drivers/qmimodem/wda.h>
+ 
+ struct qrtrqmi_data {
+ 	struct qmi_qrtr_node *node;
+ 	struct qmi_service *dms;
++	struct qmi_service *dpm;
++	struct qmi_service *wda;
+ 	int main_net_ifindex;
+ 	char main_net_name[IFNAMSIZ];
+ 	bool have_voice : 1;
+@@ -250,6 +253,10 @@ static void qrtrqmi_deinit(struct qrtrqmi_data *data)
+ {
+ 	qmi_service_free(data->dms);
+ 	data->dms = NULL;
++	qmi_service_free(data->dpm);
++	data->dpm = NULL;
++	qmi_service_free(data->wda);
++	data->wda = NULL;
+ 	qmi_qrtr_node_free(data->node);
+ 	data->node = NULL;
+ }
+@@ -315,6 +322,197 @@ error:
+ 	qrtrqmi_deinit(data);
+ }
+ 
++static int get_oper_mode(struct ofono_modem *modem)
++{
++	struct qrtrqmi_data *data = ofono_modem_get_data(modem);
++
++	if (qmi_service_send(data->dms, QMI_DMS_GET_OPER_MODE, NULL,
++					get_oper_mode_cb, modem, NULL) > 0)
++		return 0;
++
++	return -EIO;
++}
++
++/*
++ * IPA modems (SoC, Bus "embedded") only accept WDS Bind Mux Data Port once
++ * the IPA hardware endpoints are opened through the Data Port Mapper and the
++ * WDA data format is QMAP(v4), the way ModemManager sets them up. The endpoint
++ * numbers come from the ipa driver in sysfs; without them nothing is done.
++ */
++#define QMI_SERVICE_DPM			47
++#define QMI_DPM_OPEN_PORT		0x0020
++#define QMI_DPM_PARAM_HW_DATA_PORTS	0x11
++
++#define QMI_WDA_PARAM_UL_AGGREGATION	0x12
++#define QMI_WDA_PARAM_DL_AGGREGATION	0x13
++#define QMI_WDA_PARAM_DL_MAX_DATAGRAMS	0x15
++#define QMI_WDA_PARAM_DL_MAX_SIZE	0x16
++#define QMI_WDA_PARAM_ENDPOINT_INFO	0x17
++#define QMI_WDA_LL_PROTOCOL_RAW_IP	0x02
++#define QMI_WDA_AGGREGATION_QMAP	0x05
++#define QMI_WDA_AGGREGATION_QMAPV4	0x08
++
++#define IPA_INTERFACE_NUMBER		1
++#define IPA_DL_MAX_DATAGRAMS		32
++#define IPA_DL_MAX_SIZE			32768
++
++/*
++ * With MAPv4 checksum offload in the ipa driver the modem must use QMAPv4;
++ * plain QMAP passes uplink packets but no downlink ever arrives. The rmnet
++ * links need the matching MAPv4 checksum flags.
++ */
++static bool ipa_offload_mapv4(const char *ifname)
++{
++	char path[128];
++	char buf[8] = "";
++	FILE *f;
++
++	snprintf(path, sizeof(path),
++			"/sys/class/net/%s/device/feature/rx_offload", ifname);
++	f = fopen(path, "r");
++	if (!f)
++		return false;
++
++	if (!fgets(buf, sizeof(buf), f))
++		buf[0] = '\0';
++
++	fclose(f);
++	return l_str_has_prefix(buf, "MAPv4");
++}
++
++static bool read_ipa_endpoint(const char *ifname, const char *name,
++							uint32_t *out)
++{
++	char path[128];
++	FILE *f;
++	bool ok;
++
++	snprintf(path, sizeof(path), "/sys/class/net/%s/device/modem/%s",
++								ifname, name);
++	f = fopen(path, "r");
++	if (!f)
++		return false;
++
++	ok = fscanf(f, "%u", out) == 1;
++	fclose(f);
++	return ok;
++}
++
++static void data_path_done(struct ofono_modem *modem)
++{
++	if (get_oper_mode(modem) < 0) {
++		qrtrqmi_deinit(ofono_modem_get_data(modem));
++		ofono_modem_set_powered(modem, FALSE);
++	}
++}
++
++static void set_data_format_cb(struct qmi_result *result, void *user_data)
++{
++	struct ofono_modem *modem = user_data;
++	uint16_t error;
++
++	if (qmi_result_set_error(result, &error))
++		ofono_warn("%s: WDA set data format failed: %d",
++					ofono_modem_get_path(modem), error);
++
++	data_path_done(modem);
++}
++
++static void dpm_open_port_cb(struct qmi_result *result, void *user_data)
++{
++	struct ofono_modem *modem = user_data;
++	struct qrtrqmi_data *data = ofono_modem_get_data(modem);
++	struct qmi_param *param;
++	struct {
++		uint32_t endpoint_type;
++		uint32_t interface_number;
++	} __attribute__((packed)) endpoint_info = {
++		QMI_DATA_ENDPOINT_TYPE_EMBEDDED, IPA_INTERFACE_NUMBER
++	};
++	const char *ifname = ofono_modem_get_string(modem, "NetworkInterface");
++	uint32_t aggregation = QMI_WDA_AGGREGATION_QMAP;
++	uint16_t error;
++
++	if (qmi_result_set_error(result, &error))
++		ofono_warn("%s: DPM open port failed: %d",
++					ofono_modem_get_path(modem), error);
++
++	data->wda = qmi_qrtr_node_get_service(data->node, QMI_SERVICE_WDA);
++	if (!data->wda)
++		goto done;
++
++	if (ifname && ipa_offload_mapv4(ifname))
++		aggregation = QMI_WDA_AGGREGATION_QMAPV4;
++
++	param = qmi_param_new();
++	qmi_param_append_uint32(param, QMI_WDA_LL_PROTOCOL,
++					QMI_WDA_LL_PROTOCOL_RAW_IP);
++	qmi_param_append_uint32(param, QMI_WDA_PARAM_UL_AGGREGATION,
++					aggregation);
++	qmi_param_append_uint32(param, QMI_WDA_PARAM_DL_AGGREGATION,
++					aggregation);
++	qmi_param_append_uint32(param, QMI_WDA_PARAM_DL_MAX_DATAGRAMS,
++					IPA_DL_MAX_DATAGRAMS);
++	qmi_param_append_uint32(param, QMI_WDA_PARAM_DL_MAX_SIZE,
++					IPA_DL_MAX_SIZE);
++	qmi_param_append(param, QMI_WDA_PARAM_ENDPOINT_INFO,
++				sizeof(endpoint_info), &endpoint_info);
++
++	if (qmi_service_send(data->wda, QMI_WDA_SET_DATA_FORMAT, param,
++					set_data_format_cb, modem, NULL) > 0)
++		return;
++
++	qmi_param_free(param);
++done:
++	data_path_done(modem);
++}
++
++static int setup_data_path(struct ofono_modem *modem)
++{
++	struct qrtrqmi_data *data = ofono_modem_get_data(modem);
++	const char *bus = ofono_modem_get_string(modem, "Bus");
++	struct qmi_param *param;
++	uint32_t modem_tx, modem_rx;
++	struct {
++		uint8_t count;
++		uint32_t endpoint_type;
++		uint32_t interface_number;
++		uint32_t rx_endpoint;
++		uint32_t tx_endpoint;
++	} __attribute__((packed)) hw_port;
++
++	if (l_streq0(bus, "embedded") == false ||
++			!read_ipa_endpoint(data->main_net_name,
++					"tx_endpoint_id", &modem_tx) ||
++			!read_ipa_endpoint(data->main_net_name,
++					"rx_endpoint_id", &modem_rx))
++		return -ENOENT;
++
++	data->dpm = qmi_qrtr_node_get_service(data->node, QMI_SERVICE_DPM);
++	if (!data->dpm)
++		return -ENOENT;
++
++	DBG("IPA endpoints tx %u rx %u", modem_tx, modem_rx);
++
++	/* The modem's RX side is the IPA TX endpoint, and the other way round */
++	hw_port.count = 1;
++	hw_port.endpoint_type = QMI_DATA_ENDPOINT_TYPE_EMBEDDED;
++	hw_port.interface_number = IPA_INTERFACE_NUMBER;
++	hw_port.rx_endpoint = modem_tx;
++	hw_port.tx_endpoint = modem_rx;
++
++	param = qmi_param_new();
++	qmi_param_append(param, QMI_DPM_PARAM_HW_DATA_PORTS,
++					sizeof(hw_port), &hw_port);
++
++	if (qmi_service_send(data->dpm, QMI_DPM_OPEN_PORT, param,
++					dpm_open_port_cb, modem, NULL) > 0)
++		return 0;
++
++	qmi_param_free(param);
++	return -EIO;
++}
++
+ static void lookup_done(void *user_data)
+ {
+ 	struct ofono_modem *modem = user_data;
+@@ -335,8 +533,10 @@ static void lookup_done(void *user_data)
+ 		qmi_service_send(data->dms, QMI_DMS_GET_IDS, NULL,
+ 					get_ids_cb, modem, NULL);
+ 
+-	if (qmi_service_send(data->dms, QMI_DMS_GET_OPER_MODE, NULL,
+-					get_oper_mode_cb, modem, NULL) > 0)
++	if (setup_data_path(modem) == 0)
++		return;
++
++	if (get_oper_mode(modem) == 0)
+ 		return;
+ error:
+ 	qrtrqmi_deinit(data);
