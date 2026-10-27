@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# Voice call session, started and stopped by the "Voice Call" UCM verb.
+# SailfishOS variant of fxtec-pro1x-nixos device/audio/pro1x-voice-call: calls come from ofono.
+#   start   start the session in the background
+#   stop    stop it
+#   run     the session itself (foreground)
+#
+pidfile="${XDG_RUNTIME_DIR:-/tmp}/pro1x-voice-call.pid"
+
+case "${1:-run}" in
+start)
+    setsid pro1x-voice-call run >/dev/null 2>&1 </dev/null &  # busybox setsid has no -f
+  exit 0
+  ;;
+stop)
+    [ -f "$pidfile" ] && kill "$(cat "$pidfile")" 2>/dev/null
+  exit 0
+  ;;
+run) ;;
+*)
+  echo "usage: $0 start|stop|run" >&2
+  exit 1
+  ;;
+esac
+
+echo $$ >"$pidfile"
+kp=""
+cur=""
+vp=""
+sig=""
+pick() { pactl list short "$1" | awk -v pat="$2" '$2 ~ pat && $2 !~ /monitor/ { print $2; exit }'; }
+
+start_keepers() {
+  sink=$(pick sinks 'platform-sound.*Voice_Call')
+  src=$(pick sources 'platform-sound.*Voice_Call')
+  cur="$sink $src"
+  [ -n "$sink" ] || return 1
+  echo "keep-alive on $sink / $src"
+  # SailfishOS has no paplay/parec (pulseaudio-utils would conflict with the port's pulseaudio)
+  gst-launch-1.0 -q audiotestsrc wave=silence ! audio/x-raw,rate=48000,channels=2 ! pulsesink device="$sink" >/dev/null 2>&1 &
+  kp="$!"
+  if [ -n "$src" ]; then
+    gst-launch-1.0 -q pulsesrc device="$src" ! audio/x-raw,rate=48000,channels=1 ! fakesink >/dev/null 2>&1 &
+    kp="$kp $!"
+  fi
+}
+
+stop_keepers() {
+  [ -z "$kp" ] || kill $kp 2>/dev/null
+  kp=""
+}
+
+alive() {
+  [ -n "$kp" ] || return 1
+  for p in $kp; do kill -0 $p 2>/dev/null || return 1; done
+  [ "$cur" = "$(pick sinks 'platform-sound.*Voice_Call') $(pick sources 'platform-sound.*Voice_Call')" ]
+}
+
+# The DSP voice session (pro1x-voicepcm) is tied to the call: it was found to work when
+# it starts while a call exists and not when it was started beforehand (the same order
+# as postmarketOS q6voiced). So it is started when ofono reports a new call and
+# stopped when the last one is over. The codec keep-alive streams run for as long as the
+# profile is active. PRO1X_VOICE_ALWAYS=1 (or no dbus-send) starts it right away instead.
+calls() { # object paths of the calls that are not over, on one line (SailfishOS: ofono)
+  for m in $(dbus-send --system --print-reply --dest=org.ofono / org.ofono.Manager.GetModems 2>/dev/null |
+             awk '/object path/ { gsub(/"/, "", $3); print $3 }'); do
+    dbus-send --system --print-reply --dest=org.ofono "$m" org.ofono.VoiceCallManager.GetCalls 2>/dev/null |
+      awk '/object path/ { gsub(/"/, "", $3); p = $3 }
+           /string "State"/ { getline; gsub(/"/, "", $3)
+             if ($3 ~ /^(dialing|alerting|incoming|active|held|waiting)$/) print p }'
+  done | sort | tr '\n' ' '
+}
+
+start_pcm() {
+  pro1x-voicepcm &
+  vp="$!"
+  echo "voice session started"
+}
+
+stop_pcm() {
+  if [ -n "$vp" ]; then
+    kill "$vp" 2>/dev/null
+    wait "$vp" 2>/dev/null
+    echo "voice session stopped"
+  fi
+  vp=""
+}
+
+trap 'stop_keepers; stop_pcm; rm -f "$pidfile"; exit 0' TERM INT
+
+always=0
+if [ "${PRO1X_VOICE_ALWAYS:-0}" = 1 ] || ! command -v dbus-send >/dev/null 2>&1; then
+  always=1
+fi
+
+while :; do
+  if ! alive; then
+    stop_keepers
+    sleep 1
+    start_keepers || true
+  fi
+
+  if [ "$always" = 1 ]; then
+    now=always
+  else
+    now=$(calls)
+  fi
+
+  added=0
+  for c in $now; do
+    case " $sig " in *" $c "*) ;; *) added=1 ;; esac
+  done
+  if [ "$added" = 1 ]; then
+    stop_pcm
+    start_pcm # a new call: (re)start the session
+  elif [ -z "$now" ] && [ -n "$vp" ]; then
+    stop_pcm # the last call ended
+  fi
+  sig=$now
+
+  if [ -n "$vp" ] && ! kill -0 "$vp" 2>/dev/null; then
+    wait "$vp" 2>/dev/null
+    vp=""
+    echo "voice session ended on its own"
+    # no PCM to open (q6voice missing): nothing more to do in the always mode
+    [ "$always" = 1 ] && exit 1
+  fi
+  sleep 1
+done
