@@ -48,9 +48,12 @@ CONFIG_LEDS_GPIO=y
 
 # --- USB: gadget serial for debugging, PMI632 Type-C --------------------------
 CONFIG_USB_GADGET=y
-# Serial (ttyGS0) + CDC ECM ethernet (usb0) in one precomposed gadget.
+# SailfishOS: usb-moded owns the controller through configfs (charging, MTP, developer
+# mode RNDIS). The precomposed serial + CDC ECM gadget (usb0, 172.16.42.1) stays as a
+# module for bring-up: modprobe g_cdc with usb-moded stopped.
 # CONFIG_USB_G_SERIAL is not set
-CONFIG_USB_CDC_COMPOSITE=y
+CONFIG_USB_CDC_COMPOSITE=m
+CONFIG_USB_CONFIGFS=y
 CONFIG_U_SERIAL_CONSOLE=y
 CONFIG_TYPEC=y
 CONFIG_TYPEC_TCPM=y

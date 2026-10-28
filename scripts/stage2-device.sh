@@ -3,7 +3,7 @@
 #  - reinstall the packages whose scriptlets ran before /bin/sh existed (stage 1 bootstrap order)
 #  - kernel modules and firmware from the NixOS build (until there are proper RPMs)
 #  - droid-config-qx1050 sparse files
-#  - bring-up access: sshd, root login with mo's key, usb-moded off (g_cdc is built in)
+#  - bring-up access: sshd, root login with the key in build/authorized_keys
 #  - pack /port/build/sfos-rootfs.tar with numeric owners and xattrs
 set -e
 R=/rootfs
@@ -64,7 +64,7 @@ echo "PermitRootLogin prohibit-password" > $R/etc/ssh/sshd_config.d/10-bringup.c
 grep -q '^Include /etc/ssh/sshd_config.d' $R/etc/ssh/sshd_config || \
   sed -i '1i Include /etc/ssh/sshd_config.d/*.conf' $R/etc/ssh/sshd_config
 chroot $R systemctl enable sshd.socket 2>/dev/null || chroot $R systemctl enable sshd.service
-chroot $R systemctl mask usb-moded.service
+chroot $R systemctl enable usb-moded.service
 echo pro1x-sfos > $R/etc/hostname
 
 # 5. Pack.
