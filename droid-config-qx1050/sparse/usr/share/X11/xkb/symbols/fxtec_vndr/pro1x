@@ -1,7 +1,7 @@
 // F(x)tec Pro1-X hardware keyboard, German QWERTZ keycaps.
 // Level 3 (AltGr) carries the yellow Fn legends; on the SailfishOS kernel the two Fn keys
 // report KEY_RIGHTALT (sfos-dt.patch), as the yellow key did on the hybris Pro1 port
-// (xkeyboard-config-pro1, symbols/fxtec_vndr/pro1 by Nikita/NeKit, de layout by moWerk).
+// (xkeyboard-config-pro1, symbols/fxtec_vndr/pro1 by TheKit/NotKit, de layout by moWerk).
 // The legends follow the keyd layer moWerk reviewed on NixOS (hosts/mo-qwertz/keyd.conf).
 // Selected through dconf: /desktop/lipstick-jolla-home/layout = fxtec_vndr/pro1x, variant = de.
 

@@ -139,7 +139,7 @@ connection; find it by ssh host key.
 nyymi609 (NixOS port, kernel patches, UCM, haptics driver), Adam Pigg / piggz (PinePhone port
 and the native branch of droid-hal-configs, the PulseAudio build), Mister_Magister / Michał
 (freedreno config via the Moto X 2014 port, the Pro1 German layout push), Kabouik (hybris
-Pro1-X mce configs), Nikita/NeKit (xkeyboard-config-pro1), the sailfishos-native and
+Pro1-X mce configs), TheKit/NotKit (xkeyboard-config-pro1), the sailfishos-native and
 sailfish-on-dontbeevil contributors, moWerk (author, device owner, every ground-truth test).
 
 See `notes/upstream.md` for what should go back to the projects above, and the port log

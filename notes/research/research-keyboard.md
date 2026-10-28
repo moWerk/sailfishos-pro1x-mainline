@@ -42,7 +42,7 @@ xkeyboard-config-pro1}, sailfishos/lipstick, qt/qtbase 5.6 evdevkeyboard. Local:
 - confirmed droid-config-halium-qx1050 (Pro1-X): `BrightnessDirectory=/sys/class/leds/:kbd_backlight/` (486eb5c + cd08a12, Aug 2022,
   author "M" = matf@disr.it = Kabouik: "Enable vkb and hwkb backlight when using Piggz's kernel instead of UT's kernel"); `90evdev.ini`
   `[EVDEV] KEY_HOMEPAGE=KEY_HOME` + `[SW_KEYPAD_SLIDE] Fxtec Pro1=gpio-keys`. No keymap/xkb/udev input files (70-pro1x.rules = Android perms).
-- confirmed: our two ini comments credit "Nikita": wrong. Nikita = NeKit/NotKit forked xkeyboard-config-pro1 (4622de1, 2019-10-08);
+- confirmed: our two ini comments credit TheKit/NotKit: wrong. TheKit/NotKit forked xkeyboard-config-pro1 (4622de1, 2019-10-08);
   Michal Szczepaniak (Mister Magister) added de/ru/us-intl layouts (e741802, 2020-01-20); Kabouik sanitized them (7cf0249).
 
 ## 3. Keyboard layout
@@ -66,7 +66,7 @@ xkeyboard-config-pro1}, sailfishos/lipstick, qt/qtbase 5.6 evdevkeyboard. Local:
 
 ## Recommendation
 
-MCE, `sparse/etc/mce/` (fix both "Nikita" comments to Kabouik / Mathieu Laparie):
+MCE, `sparse/etc/mce/` (fix both TheKit/NotKit comments to Kabouik / Mathieu Laparie):
 ```
 # 90-qx1050-evdev.ini
 [EVDEV]
