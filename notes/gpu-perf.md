@@ -27,6 +27,23 @@ A second baseline earlier the same day (after hours of uptime) gave the same pic
 GPU frequency was not the limit: devfreq (simple_ondemand, 320-950 MHz) sits at 950 MHz
 under load in both cases. UBWC is configured (UBWC 1.0, highest bank bit 14).
 
+## 2026-10-28: Mesa sysmem / GMEM choice (FD_MESA_DEBUG, with patch 0021)
+
+Freedreno decides per batch between tiled rendering in GMEM and direct (sysmem) rendering.
+Forcing either, 2 runs each:
+
+| Stage | default | FD_MESA_DEBUG=sysmem | FD_MESA_DEBUG=gmem |
+|---|---|---|---|
+| Benchy large | 16452 / 16302 | 2298 / 2304 | 16821 / 16798 |
+| Overdraw | 1835 / 1778 | 896 / 926 | 1958 / 2008 (+10 %) |
+| Icon storm | 31866 / 32490 | 30171 / 30226 | 35571 / 34745 (+9 %) |
+| Cascade | 114211 / 114036 | | 96376 / 92985 (-17 %) |
+| Benchy small, Glow, Shader light/heavy, Tables | | | equal within noise |
+
+Not adopted: forced GMEM wins on overdraw-heavy scenes and loses on Cascade. Worth a report
+to the freedreno developers (A610: small GMEM, slow LPDDR4X), with Benchymark as a
+reproducer. Sysmem alone is far slower, so the default heuristic is mostly right.
+
 ## Still to look at
 
 - GPU frequency ramp at the start of UI animations (devfreq up-threshold / boost), which
