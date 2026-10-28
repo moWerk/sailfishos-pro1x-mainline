@@ -1,7 +1,8 @@
 # SailfishOS on the F(x)tec Pro1-X with a mainline kernel (bring-up prototype)
 
-SailfishOS 5.1.0.11 (aarch64, Jolla's repositories) running on the F(x)tec Pro1-X
-(qx1050, Qualcomm SM6115) on Linux 7.1 from the sm6115-mainline tree, without libhybris
+SailfishOS 5.2.0.22 (aarch64, Jolla's repositories) running on the F(x)tec Pro1-X
+(qx1050, Qualcomm SM6115) on its own mainline kernel (7.3.0-qx1050, started from the
+sm6115-mainline tree at 7.1), without libhybris
 or any Android pieces. The work builds on nyymi609's NixOS port of the device
 (fxtec-pro1x-nixos: kernel patches, firmware set, UCM audio profile, U-Boot) and borrows its
 userspace shape from the PinePhone port (sailfish-on-dontbeevil).
@@ -10,6 +11,25 @@ This is a prototype made with LLM assistance (Claude, driven and reviewed by moW
 October 2026. It is meant to be read and rewritten by someone with porting and upstreaming
 experience, not merged as is. Every decision that was taken is written down here or in
 `notes/`; where something was guessed, the file says so.
+
+## Since then (2026-10-28)
+
+- Upgraded in place to SailfishOS 5.2.0.22 (`notes/sfos-5.2-upgrade.md`).
+- Mobile data works: ofono patch `patches/ofono/0020-qrtrqmi-ipa-data-path.patch` (DPM open
+  port, QMAPv4 with DL aggregation, bind without client type) and rmnet links with MAPv4
+  checksum offload. The data toggle in Settings works.
+- Calls: incoming and outgoing calls connect, the ringtone plays, Settings > SIM cards is
+  there (`jolla-settings-networking-multisim`). Call audio is still silent both ways: the
+  DSP voice session (q6voice, VoiceMMode1) starts without errors, the codec routes are set,
+  and nothing passes. A policy loop that switched the card profile five times a second
+  during calls is fixed (`xpolicy.conf` disable_notify). Work in progress,
+  `packages/qx1050-voicecall/README.md`.
+- Camera: libcamera 0.7.2 with the GPU software ISP, about 32 fps at 1280x960, autofocus on
+  the rear camera.
+- Sensors: sensorfw adaptor plugins for the SSC (`packages/sensorfw-qt5-ssc/`), built,
+  not yet run.
+
+The table below is the state of 2026-10-24 and is kept for the detail it carries.
 
 ## State (2026-10-24)
 

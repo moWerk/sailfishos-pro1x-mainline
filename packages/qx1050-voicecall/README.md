@@ -30,3 +30,19 @@ Speaker)" stops it. Kernel side effect seen on the switch: wcd937x_codec_enable_
   "call" group (verified: policy.group = "call"). Next: a third call.
 - One manual profile switch crashed PulseAudio (assertion pa_channels_valid in
   pa_cvolume_set, then pa_idxset_first on restart); not reproduced since. Watch for it.
+
+## Calls 2026-10-28 (0.1-4, 0.1-5)
+
+- The tack loop was the audio policy, not the helper: every UCM route is its own card
+  profile, so a profile switch removes the sink, PulseAudio reported all built-in devices
+  gone to ohmd ("info 0"), ohmd rerouted, the sink came back ("info 1"), ohmd rerouted again:
+  "Voice Call (Earpiece, Mic)" and "Voice Call (Mic, Speaker)" alternated every 0.18 s.
+  Found with `dbus-monitor --system` and `pactl subscribe`. Fixed in `xpolicy.conf`
+  (disable_notify on the built-in [device] rules); the loop is gone.
+- Still silent both ways. The VoiceMMode1 session (VSID 11C05000) opens without errors, the
+  voice mixers and the earpiece path are on, the voice PCM runs at 8 kHz, the keep-alive
+  streams hold the codec DMA back ends. 0.1-5 opens the session only once the call is active
+  (as postmarketOS q6voiced does): no change.
+- Open: whether call audio was ever heard on this phone with a mainline kernel; a NixOS
+  baseline (kernel 7.1, ModemManager) is being set up. The modem logs a watchdog crash
+  ("DOG detects stalled initialization") about 40 s after boot and restarts.
