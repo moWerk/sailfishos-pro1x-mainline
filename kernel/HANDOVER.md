@@ -21,7 +21,7 @@ upstream needs the original author's sign-off first.
 | pro1x-leds | +61 | torch / keyboard backlight / qcom flash LED | upstreamable | — (small) | 7.1: yes |
 | pro1x-power | +897 | battery estimate from PMIC ADC + charger input limit + watchdog | questionable as is (board-specific estimator, two `pro1x-*` drivers) | a real fuel gauge path (qcom pmi632 ADC/fg) would be the upstream route | 7.1: yes |
 | pro1x-haptics | +317 | AW86224 vibration driver | upstreamable | binding | 7.1: yes (with gain 7 / drive 100) |
-| pro1x-bluetooth | DTS | WCN3950 | upstreamable | the re-power failure (notes/upstream.md) | 7.1: works from boot only |
+| pro1x-bluetooth | DTS | WCN3950 | upstreamable | — (the 7.1 re-power failure, notes/upstream.md, did not reproduce on 7.3) | 7.1: works from boot only; 7.3: yes, A2DP, repeated off/on (2026-10-28) |
 | pro1x-ipa | DTS | modem data path (IPA) | upstreamable | — | 7.1: modem registers; data partly |
 | sfos-dt | DTS | kbd LED active-low (**upstreamable**, real hardware fact), Fn -> KEY_RIGHTALT (**SFOS-only**), slide inverted (**SFOS-only**, mce) | mixed | split: send the LED polarity; fix mce (slide) and the keymap (Fn) instead | 7.1: yes |
 | sfos-venus | DTS | `&venus { status = "okay"; }` | upstreamable, 9 lines | SoC node and gcc flag are upstream since 7.2/7.3 | 7.1 backport: yes (H.264 encode) |
