@@ -136,6 +136,7 @@ void SscAdaptor::createDone(GObject *, GAsyncResult *res, gpointer data)
     }
     self->m_sensor = sensor;
     self->m_handler = g_signal_connect(sensor, "measurement", self->m_ops.measurement, self);
+    qCInfo(lcSensorFw) << self->id() << self->m_ops.name << "SSC sensor created";
     self->m_state = Closed;
     self->step();
 }
@@ -152,6 +153,7 @@ void SscAdaptor::openDone(GObject *, GAsyncResult *res, gpointer data)
         self->m_state = Closed;
         return;
     }
+    qCInfo(lcSensorFw) << self->id() << self->m_ops.name << "SSC sensor open";
     self->m_state = Open;
     self->step();
 }

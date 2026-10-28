@@ -1,7 +1,7 @@
 Name:       sensorfw-qt5-ssc
 Summary:    sensorfw adaptors for Qualcomm SSC sensors (libssc)
 Version:    0.1
-Release:    1
+Release:    3
 License:    LGPLv2
 URL:        https://github.com/moWerk
 Source0:    %{name}-%{version}.tar.gz

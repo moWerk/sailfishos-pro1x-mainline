@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: LGPL-2.1-only */
 #include "sscaccelerometeradaptor.h"
 #include "datatypes/utils.h"
+#include "logging.h"
 
 #pragma push_macro("signals")
 #undef signals
@@ -48,6 +49,9 @@ SscAccelerometerAdaptor::~SscAccelerometerAdaptor()
 void SscAccelerometerAdaptor::measurement(GObject *, gfloat x, gfloat y, gfloat z, gpointer data)
 {
     SscAccelerometerAdaptor *self = static_cast<SscAccelerometerAdaptor *>(data);
+    static int seen;
+    if (seen++ < 3)
+        qCInfo(lcSensorFw) << self->id() << "accel sample" << x << y << z << "accepting" << self->accepting();
     if (!self->accepting())
         return;
     AccelerationData *d = self->buffer->nextSlot();
