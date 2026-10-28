@@ -17,17 +17,18 @@ experience, not merged as is. Every decision that was taken is written down here
 | Area | State | Where |
 |---|---|---|
 | OS | SailfishOS 5.2.0.22, upgraded in place from 5.1.0.11; Jolla Store, OS update page, accounts and sync from `patterns-sailfish-consumer-generic` | `notes/sfos-5.2-upgrade.md`, `scripts/stage1-base.sh` |
-| Kernel | own 7.3.0-qx1050: v7.3 + 17 patches (`kernel/patches-7.3/`, what each is and its upstream status in `kernel/HANDOVER.md`) | `kernel/` |
+| Kernel | own 7.3.0-qx1050: v7.3 + 18 patches (`kernel/patches-7.3/`, what each is and its upstream status in `kernel/HANDOVER.md`) | `kernel/` |
 | Mobile data | works, toggle in Settings works: ofono patch 0020 (DPM open port, QMAPv4 with DL aggregation, bind without client type), rmnet links with MAPv4 checksum offload | `patches/ofono/`, `sparse/usr/bin/droid/qx1050-modem-prep.sh` |
 | Calls, SMS | calls connect both ways, ringtone plays, SMS; Settings > SIM cards (`jolla-settings-networking-multisim`) | |
 | Call audio | **not working**: silent both ways. The q6voice session (VoiceMMode1) starts without errors and the codec routes are set; nothing passes. A policy loop that switched the card profile five times a second during calls is fixed (`xpolicy.conf` disable_notify) | `packages/qx1050-voicecall/README.md` |
 | Sensors | **working**: accelerometer, magnetometer/compass, light, proximity (gyroscope adaptor built, untested) through the ADSP Sensor Core (hexagonrpcd + libssc + our sensorfw adaptors). Auto-rotation, tilt in apps, auto brightness, proximity in mce. Started by hand until a few clean boots | `packages/sensorfw-qt5-ssc/`, `notes/sensors-design.md` |
-| Charge limit | Settings > Battery charge limit: mce switches the PMI632 charge enable through a new `charging_enabled` attribute (kernel patch 0017); limit stop under test | `sparse/etc/mce/92-qx1050-charging.ini` |
+| Charge limit | Settings > Battery charge limit: mce switches the PMI632 charge enable through a new `charging_enabled` attribute (kernel patch 0017); stops at the set limit | `sparse/etc/mce/92-qx1050-charging.ini` |
 | Camera | libcamera 0.7.2 with the GPU software ISP, about 32 fps at 1280x960, rear autofocus, video recording (Venus H.264) | `patches/libcamera/` |
 | Bluetooth | works: audio streaming (A2DP) to Moondrop Space Travel Ultra 2 earbuds; toggling Bluetooth off and on several times reconnects every time (the 7.1 power-down failure is gone on 7.3) | |
 | Audio | speaker and microphone confirmed; earpiece and headphone routes configured, not yet confirmed on SailfishOS (PulseAudio 17 + UCM2 + ohm policy) | `sparse/etc/pulse/`, `sparse/usr/share/alsa/ucm2/` |
 | Settings | hardware feature list (`hw-settings.ini`) declared, which gates sensors, the battery indicator and several Settings items; orientation lock, rotating home screen, sideloading pages | `sparse/usr/share/csd/settings.d/hw-settings.ini` |
 | SD card | detected, shown in Settings > Storage | |
+| USB | usb-moded on configfs: plug notification, charging only, developer mode (192.168.2.15), MTP file transfer | `sparse/etc/usb-moded/`, `sparse/usr/bin/droid/qx1050-usb-gadget.sh` |
 | Still tied to NixOS | boot (U-Boot menu and one-shot entry on the NixOS partition), firmware set, initramfs build | `kernel/README.md` |
 
 Getting it running is not yet a download-and-flash affair: the rootfs is built with
