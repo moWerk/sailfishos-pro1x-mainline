@@ -1,0 +1,3 @@
+# wlan0 (ath10k) appears late in boot; give it the stable MAC as soon as it does, without
+# holding up connman or the user session (qx1050-wlan-mac.service).
+ACTION=="add", SUBSYSTEM=="net", KERNEL=="wlan0", TAG+="systemd", ENV{SYSTEMD_WANTS}+="qx1050-wlan-mac.service"

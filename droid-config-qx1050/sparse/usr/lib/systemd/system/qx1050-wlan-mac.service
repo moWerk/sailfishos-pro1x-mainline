@@ -1,0 +1,10 @@
+[Unit]
+Description=Stable Wi-Fi MAC for wlan0
+# Started by udev when wlan0 appears (70-qx1050-wlan-mac.rules). connman has usually been
+# running for a while by then and saw the random address, so it is restarted once to file
+# the interface under the stable identity its saved networks use.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/droid/qx1050-wlan-mac.sh wlan0
+ExecStartPost=-/usr/bin/systemctl try-restart connman.service
