@@ -120,3 +120,21 @@ Each entry: what, where, evidence. None sent yet; the human author decides and s
   CAMSS's async notifier then registers no camera at all until every sensor is bound.
 - libcamera 0.4 `libcamerasrc`: aborts in the CameraManager thread at EOS/teardown with
   gst-launch (identity eos-after); frames are delivered before that.
+
+## libssc (Dylan Van Assche, used by postmarketOS and iio-sensor-proxy)
+
+- `packages/libssc/rpm/0002-sensor-ignore-other-clients-discovery-while-waiting.patch`
+  (2026-10-28): while waiting for the SSC 'registry' sensor, report_received() counted
+  other clients' discovery replies as failed polls and slept with g_usleep(1 s) inside the
+  callback, up to 100 times. A host with several sensors (sensorfwd, iio-sensor-proxy)
+  freezes its main loop for that time; on the Pro1-X lipstick took 25 s instead of 7 s to
+  start when the SSC service was not yet up. The patch ignores replies for other data types
+  while waiting and retries from g_timeout_add_seconds(). Upstreamable as is; wants a test
+  with the mock server.
+
+## Linux: sm6115 GPU interconnect (found 2026-10-28)
+
+- sm6115.dtsi gives the Adreno 610 no `interconnects` / `opp-peak-kBps`: qnm_gpu votes 0
+  bandwidth, DDR follows CPU and display votes only. agatti.dtsi (QCM2290) has the pattern
+  (MASTER_GFX3D -> SLAVE_EBI1, 1.72 / 2.93 / 3.88 / 6.88 GB/s). Measured on the
+  Pro1-X: +8 to +37 % on bandwidth-bound Benchymark stages (notes/gpu-perf.md); kernel patch 0021.
