@@ -1,0 +1,47 @@
+--- a/src/libssc-sensor.c
++++ b/src/libssc-sensor.c
+@@ -78,6 +78,15 @@
+ static void
+ attribute (SSCSensor *self, GTask *task);
+ 
++static gboolean
++retry_sensor_service (gpointer user_data)
++{
++	ReportReceivedContext *ctx = user_data;
++
++	wait_for_sensor_service (ctx->sensor, ctx->task);
++	return G_SOURCE_REMOVE;
++}
++
+ static void
+ report_received (SSCClient *self, guint32 msg_id, guint64 uid_high, guint64 uid_low, GArray *buf, gpointer user_data);
+ 
+@@ -305,6 +314,16 @@
+ 		}
+ 
+ 		if (!priv->service_available) {
++			/*
++			 * Every client sees the discovery replies of all clients. While waiting for
++			 * the service only the reply to our own 'registry' poll counts; replies to
++			 * other sensors' discovery (accel, mag, ...) are not a failed poll.
++			 */
++			if (g_strcmp0 (suid_msg->data_type, "registry") != 0) {
++				ssc_suid_response__free_unpacked (suid_msg, NULL);
++				return;
++			}
++
+ 			priv->service_retries++;
+ 			ssc_suid_response__free_unpacked (suid_msg, NULL);
+ 
+@@ -322,9 +341,9 @@
+ 				return;
+ 			}
+ 
+-			g_usleep(1 * G_USEC_PER_SEC);
++			/* Retry from a timer: sleeping here would block the caller's main loop. */
+ 			g_debug ("'registry' sensor unavailable, retrying... (%d/%d)", priv->service_retries, MAX_RETRIES);
+-			wait_for_sensor_service (ctx->sensor, ctx->task);
++			g_timeout_add_seconds (1, retry_sensor_service, ctx);
+ 			return;
+ 		}
+ 

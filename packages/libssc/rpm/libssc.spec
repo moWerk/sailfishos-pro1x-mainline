@@ -1,12 +1,13 @@
 Name:       libssc
 Version:    0.4.4
-Release:    1
+Release:    2
 Summary:    Library to access the sensors of the Qualcomm Sensor Core
 License:    GPL-3.0-or-later
 URL:        https://codeberg.org/DylanVanAssche/libssc
 Source0:    %{name}-%{version}.tar.bz2
 # Applied in the tree (mb2 builds the directory as it is); listed for the record.
 Patch1:     0001-Build-without-the-mock-server-and-tests.patch
+Patch2:     0002-sensor-ignore-other-clients-discovery-while-waiting.patch
 BuildRequires: meson >= 1.4.0
 BuildRequires: ninja
 BuildRequires: pkgconfig(glib-2.0)
