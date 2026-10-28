@@ -58,16 +58,18 @@ alive() {
 
 # The DSP voice session (pro1x-voicepcm) is tied to the call: it was found to work when
 # it starts while a call exists and not when it was started beforehand (the same order
-# as postmarketOS q6voiced). So it is started when ofono reports a new call and
-# stopped when the last one is over. The codec keep-alive streams run for as long as the
-# profile is active. PRO1X_VOICE_ALWAYS=1 (or no dbus-send) starts it right away instead.
-calls() { # object paths of the calls that are not over, on one line (SailfishOS: ofono)
+# as postmarketOS q6voiced). So it is started when ofono reports a connected call and
+# stopped when the last one is over. A session opened while dialing stayed silent on
+# SailfishOS, so dialing, alerting and incoming calls do not count yet. The codec
+# keep-alive streams run for as long as the profile is active. PRO1X_VOICE_ALWAYS=1
+# (or no dbus-send) starts it right away instead.
+calls() { # object paths of the connected calls, on one line (SailfishOS: ofono)
   for m in $(dbus-send --system --print-reply --dest=org.ofono / org.ofono.Manager.GetModems 2>/dev/null |
              awk '/object path/ { gsub(/"/, "", $3); print $3 }'); do
     dbus-send --system --print-reply --dest=org.ofono "$m" org.ofono.VoiceCallManager.GetCalls 2>/dev/null |
       awk '/object path/ { gsub(/"/, "", $3); p = $3 }
            /string "State"/ { getline; gsub(/"/, "", $3)
-             if ($3 ~ /^(dialing|alerting|incoming|active|held|waiting)$/) print p }'
+             if ($3 ~ /^(active|held)$/) print p }'
   done | sort | tr '\n' ' '
 }
 
