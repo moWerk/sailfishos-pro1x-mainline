@@ -12,22 +12,26 @@ October 2026. It is meant to be read and rewritten by someone with porting and u
 experience, not merged as is. Every decision that was taken is written down here or in
 `notes/`; where something was guessed, the file says so.
 
-## Since then (2026-10-28)
+## State (2026-10-28)
 
-- Upgraded in place to SailfishOS 5.2.0.22 (`notes/sfos-5.2-upgrade.md`).
-- Mobile data works: ofono patch `patches/ofono/0020-qrtrqmi-ipa-data-path.patch` (DPM open
-  port, QMAPv4 with DL aggregation, bind without client type) and rmnet links with MAPv4
-  checksum offload. The data toggle in Settings works.
-- Calls: incoming and outgoing calls connect, the ringtone plays, Settings > SIM cards is
-  there (`jolla-settings-networking-multisim`). Call audio is still silent both ways: the
-  DSP voice session (q6voice, VoiceMMode1) starts without errors, the codec routes are set,
-  and nothing passes. A policy loop that switched the card profile five times a second
-  during calls is fixed (`xpolicy.conf` disable_notify). Work in progress,
-  `packages/qx1050-voicecall/README.md`.
-- Camera: libcamera 0.7.2 with the GPU software ISP, about 32 fps at 1280x960, autofocus on
-  the rear camera.
-- Sensors: sensorfw adaptor plugins for the SSC (`packages/sensorfw-qt5-ssc/`), built,
-  not yet run.
+| Area | State | Where |
+|---|---|---|
+| OS | SailfishOS 5.2.0.22, upgraded in place from 5.1.0.11; Jolla Store, OS update page, accounts and sync from `patterns-sailfish-consumer-generic` | `notes/sfos-5.2-upgrade.md`, `scripts/stage1-base.sh` |
+| Kernel | own 7.3.0-qx1050: v7.3 + 17 patches (`kernel/patches-7.3/`, what each is and its upstream status in `kernel/HANDOVER.md`) | `kernel/` |
+| Mobile data | works, toggle in Settings works: ofono patch 0020 (DPM open port, QMAPv4 with DL aggregation, bind without client type), rmnet links with MAPv4 checksum offload | `patches/ofono/`, `sparse/usr/bin/droid/qx1050-modem-prep.sh` |
+| Calls, SMS | calls connect both ways, ringtone plays, SMS; Settings > SIM cards (`jolla-settings-networking-multisim`) | |
+| Call audio | **not working**: silent both ways. The q6voice session (VoiceMMode1) starts without errors and the codec routes are set; nothing passes. A policy loop that switched the card profile five times a second during calls is fixed (`xpolicy.conf` disable_notify) | `packages/qx1050-voicecall/README.md` |
+| Sensors | **working**: accelerometer, gyroscope, magnetometer/compass, light, proximity through the ADSP Sensor Core (hexagonrpcd + libssc + our sensorfw adaptors). Auto-rotation, tilt in apps, auto brightness, proximity in mce. Started by hand until a few clean boots | `packages/sensorfw-qt5-ssc/`, `notes/sensors-design.md` |
+| Charge limit | Settings > Battery charge limit: mce switches the PMI632 charge enable through a new `charging_enabled` attribute (kernel patch 0017); limit stop under test | `sparse/etc/mce/92-qx1050-charging.ini` |
+| Camera | libcamera 0.7.2 with the GPU software ISP, about 32 fps at 1280x960, rear autofocus, video recording (Venus H.264) | `patches/libcamera/` |
+| Audio | speaker, earpiece, headphones, microphone (PulseAudio 17 + UCM2 + ohm policy) | `sparse/etc/pulse/`, `sparse/usr/share/alsa/ucm2/` |
+| Settings | hardware feature list (`hw-settings.ini`) declared, which gates sensors, the battery indicator and several Settings items; orientation lock, rotating home screen, sideloading pages | `sparse/usr/share/csd/settings.d/hw-settings.ini` |
+| SD card | detected, shown in Settings > Storage | |
+| Still tied to NixOS | boot (U-Boot menu and one-shot entry on the NixOS partition), firmware set, initramfs build | `kernel/README.md` |
+
+Getting it running is not yet a download-and-flash affair: the rootfs is built with
+`scripts/stage1-base.sh` and `stage2-device.sh`, the kernel with `kernel/build-kernel.sh`,
+and it boots next to nyymi609's NixOS port. Read `notes/` before trying.
 
 The table below is the state of 2026-10-24 and is kept for the detail it carries.
 
