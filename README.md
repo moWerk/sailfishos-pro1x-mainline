@@ -24,7 +24,7 @@ experience, not merged as is. Every decision that was taken is written down here
 | Sensors | **working**: accelerometer, magnetometer/compass, light, proximity (gyroscope adaptor built, untested) through the ADSP Sensor Core (hexagonrpcd + libssc + our sensorfw adaptors). Auto-rotation, tilt in apps, auto brightness, proximity in mce. Started by hand until a few clean boots | `packages/sensorfw-qt5-ssc/`, `notes/sensors-design.md` |
 | Charge limit | Settings > Battery charge limit: mce switches the PMI632 charge enable through a new `charging_enabled` attribute (kernel patch 0017); limit stop under test | `sparse/etc/mce/92-qx1050-charging.ini` |
 | Camera | libcamera 0.7.2 with the GPU software ISP, about 32 fps at 1280x960, rear autofocus, video recording (Venus H.264) | `patches/libcamera/` |
-| Bluetooth | works: audio streaming (A2DP) to Moondrop Space Travel Ultra 2 earbuds confirmed. Known kernel issue from 7.1: dead after a Bluetooth power-down until reboot, not re-checked on 7.3 | |
+| Bluetooth | works: audio streaming (A2DP) to Moondrop Space Travel Ultra 2 earbuds; toggling Bluetooth off and on several times reconnects every time (the 7.1 power-down failure is gone on 7.3) | |
 | Audio | speaker and microphone confirmed; earpiece and headphone routes configured, not yet confirmed on SailfishOS (PulseAudio 17 + UCM2 + ohm policy) | `sparse/etc/pulse/`, `sparse/usr/share/alsa/ucm2/` |
 | Settings | hardware feature list (`hw-settings.ini`) declared, which gates sensors, the battery indicator and several Settings items; orientation lock, rotating home screen, sideloading pages | `sparse/usr/share/csd/settings.d/hw-settings.ini` |
 | SD card | detected, shown in Settings > Storage | |
