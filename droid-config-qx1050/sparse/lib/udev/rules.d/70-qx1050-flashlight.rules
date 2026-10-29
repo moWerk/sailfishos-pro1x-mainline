@@ -1,0 +1,2 @@
+# Torch LEDs: writable for the user session (video group), for sysfs-flashlight.
+SUBSYSTEM=="leds", KERNEL=="white:flash-0|amber:flash-1", RUN+="/bin/chgrp video /sys%p/brightness", RUN+="/bin/chmod 0664 /sys%p/brightness"

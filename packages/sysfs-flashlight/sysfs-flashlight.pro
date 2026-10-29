@@ -1,0 +1,11 @@
+TEMPLATE = app
+TARGET = sysfs-flashlight
+QT = core dbus
+CONFIG += link_pkgconfig
+PKGCONFIG += libresourceqt5
+SOURCES = src/main.cpp src/flashlightservice.cpp
+HEADERS = src/flashlightservice.h
+target.path = /usr/bin
+service.files = src/org.sailfish.flashlight.provider.service
+service.path = /usr/share/dbus-1/services
+INSTALLS += target service

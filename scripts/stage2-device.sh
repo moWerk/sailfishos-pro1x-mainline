@@ -48,6 +48,9 @@ for v in $(ls $R/lib/modules); do chroot $R /sbin/depmod -a "$v"; done
 
 # 2b. Port packages built in the Platform SDK (port/packages): qrtr, rmtfs (read-only), tqftpserv.
 rpm --root $R -Uvh --replacepkgs build/rpms/*.rpm
+# The top-menu flashlight toggle; its provider (sailfish-flashlight-provider) is the port's
+# sysfs-flashlight from build/rpms, so it can only come after them.
+zypper --root $R -n --cache-dir /port/cache in --no-recommends jolla-settings-system-flashlight
 chroot $R systemctl enable rmtfs.service tqftpserv.service
 chroot $R systemctl mask rmtfs-dir.service
 
