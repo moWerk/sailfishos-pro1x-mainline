@@ -1,0 +1,127 @@
+From 777a1ae2573752f58e6b17ea11829eeed29b2b62 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Fri, 30 Oct 2026 00:09:16 +0100
+Subject: [PATCH 11/11] camerabin: flash LED through its V4L2 flash subdevice
+ first, Release 12
+
+jolla-camera runs under sailjail with /sys read-only, so the LED class
+brightness file cannot be written ('Read-only file system'). With
+CONFIG_V4L2_FLASH_LED_CLASS the flash LED also registers a V4L2 flash
+subdevice named after it; the sandbox allows /dev/v4l-subdev* (libcamera
+needs them). Torch mode at the highest torch intensity, the subdevice
+kept open while the LED is on; sysfs remains the fallback.
+---
+ rpm/qtmultimedia.spec                         |  2 +-
+ .../gstreamer/camerabin/camerabinflash.cpp    | 55 +++++++++++++++++++
+ .../gstreamer/camerabin/camerabinflash.h      |  3 +
+ 3 files changed, 59 insertions(+), 1 deletion(-)
+
+diff --git a/rpm/qtmultimedia.spec b/rpm/qtmultimedia.spec
+index 3fcb842c..ed1dc0ea 100644
+--- a/rpm/qtmultimedia.spec
++++ b/rpm/qtmultimedia.spec
+@@ -1,7 +1,7 @@
+ Name:       qt5-qtmultimedia
+ Summary:    Qt Multimedia module
+ Version:    5.6.2+v4l.20261024000000.qx1050
+-Release:    11%{?dist}
++Release:    12%{?dist}
+ License:    (LGPLv2 or LGPLv3) with exception or GPLv3 or Qt Commercial
+ URL:        https://www.qt.io/
+ Source0:    %{name}-%{version}.tar.bz2
+diff --git a/src/plugins/gstreamer/camerabin/camerabinflash.cpp b/src/plugins/gstreamer/camerabin/camerabinflash.cpp
+index 001a8f29..fc9a81a7 100644
+--- a/src/plugins/gstreamer/camerabin/camerabinflash.cpp
++++ b/src/plugins/gstreamer/camerabin/camerabinflash.cpp
+@@ -33,6 +33,12 @@
+ 
+ #include "camerabinflash.h"
+ #include <QFile>
++#include <QDir>
++#include <fcntl.h>
++#include <string.h>
++#include <unistd.h>
++#include <sys/ioctl.h>
++#include <linux/videodev2.h>
+ #include <private/qgstutils_p.h>
+ #include "camerabinsession.h"
+ #include <gst/interfaces/photography.h>
+@@ -80,11 +86,60 @@ bool CameraBinFlash::rearCamera() const
+             != QCamera::FrontFace;
+ }
+ 
++/*
++ * The LED's V4L2 flash subdevice (CONFIG_V4L2_FLASH_LED_CLASS): the sandboxed camera
++ * app cannot write /sys, but it can open /dev/v4l-subdev*. Torch mode at the highest
++ * torch intensity; the subdevice stays open while the LED is on.
++ */
++bool CameraBinFlash::setLedV4l2(const QString &led, bool on)
++{
++    if (!on) {
++        if (!m_ledFds.contains(led))
++            return false;
++        const int fd = m_ledFds.take(led);
++        struct v4l2_control ctrl = { V4L2_CID_FLASH_LED_MODE, V4L2_FLASH_LED_MODE_NONE };
++        ioctl(fd, VIDIOC_S_CTRL, &ctrl);
++        ::close(fd);
++        return true;
++    }
++
++    const QDir dir(QStringLiteral("/sys/class/video4linux"));
++    for (const QString &node : dir.entryList(QStringList(QStringLiteral("v4l-subdev*")))) {
++        QFile name(dir.filePath(node + QStringLiteral("/name")));
++        if (!name.open(QIODevice::ReadOnly) || QString::fromLatin1(name.readAll()).trimmed() != led)
++            continue;
++        const int fd = ::open(QFile::encodeName(QStringLiteral("/dev/") + node).constData(),
++                              O_RDWR | O_CLOEXEC);
++        if (fd < 0) {
++            qWarning("camerabin: cannot open %s for flash LED %s", qPrintable(node), qPrintable(led));
++            return false;
++        }
++        struct v4l2_queryctrl q;
++        memset(&q, 0, sizeof(q));
++        q.id = V4L2_CID_FLASH_TORCH_INTENSITY;
++        if (ioctl(fd, VIDIOC_QUERYCTRL, &q) == 0) {
++            struct v4l2_control intensity = { V4L2_CID_FLASH_TORCH_INTENSITY, q.maximum };
++            ioctl(fd, VIDIOC_S_CTRL, &intensity);
++        }
++        struct v4l2_control ctrl = { V4L2_CID_FLASH_LED_MODE, V4L2_FLASH_LED_MODE_TORCH };
++        if (ioctl(fd, VIDIOC_S_CTRL, &ctrl) < 0) {
++            qWarning("camerabin: flash LED %s: torch mode failed", qPrintable(led));
++            ::close(fd);
++            return false;
++        }
++        m_ledFds.insert(led, fd);
++        return true;
++    }
++    return false;
++}
++
+ void CameraBinFlash::setLed(bool on)
+ {
+     if (on == m_ledOn)
+         return;
+     for (const QString &led : m_leds) {
++        if (setLedV4l2(led, on))
++            continue;
+         QFile f(QStringLiteral("/sys/class/leds/%1/brightness").arg(led));
+         if (!f.open(QIODevice::WriteOnly) || f.write(on ? m_ledBrightness : QByteArray("0")) < 0)
+             qWarning("camerabin: cannot switch flash LED %s: %s", qPrintable(led),
+diff --git a/src/plugins/gstreamer/camerabin/camerabinflash.h b/src/plugins/gstreamer/camerabin/camerabinflash.h
+index 2483f1ca..d265655f 100644
+--- a/src/plugins/gstreamer/camerabin/camerabinflash.h
++++ b/src/plugins/gstreamer/camerabin/camerabinflash.h
+@@ -70,7 +70,10 @@ private:
+     bool rearCamera() const;
+ 
+     CameraBinSession *m_session;
++    bool setLedV4l2(const QString &led, bool on);
++
+     QStringList m_leds;
++    QMap<QString, int> m_ledFds;     // open V4L2 flash subdevices while their LED is on
+     QByteArray m_ledBrightness;
+     QCameraExposure::FlashModes m_ledMode;
+     bool m_ledOn;
+-- 
+2.56.0
+

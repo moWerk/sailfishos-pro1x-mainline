@@ -1,0 +1,50 @@
+From fbb776998a1469e0e23828263c4a68409a6f24c0 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Sun, 25 Oct 2026 16:07:31 +0100
+Subject: [PATCH 09/11] VideoOutput: rotate mirrored front cameras the other
+ way, Release 10
+
+Release 9 mirrored the front camera but kept rotating it by +orientation; after a
+horizontal mirror the rotation runs the other way (Qt's own auto-orientation uses
+360 - orientation for front cameras for that reason). On the Pro1-X the selfie
+viewfinder stayed upside down. The same libcamera values (front Rotation 90, back
+270) show both cameras correctly in phosh, so the device tree is right.
+
+LLMGD-0 A0
+---
+ rpm/qtmultimedia.spec                                  | 2 +-
+ src/qtmultimediaquicktools/qdeclarativevideooutput.cpp | 4 +++-
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/rpm/qtmultimedia.spec b/rpm/qtmultimedia.spec
+index c7b8aaad..7757e92e 100644
+--- a/rpm/qtmultimedia.spec
++++ b/rpm/qtmultimedia.spec
+@@ -1,7 +1,7 @@
+ Name:       qt5-qtmultimedia
+ Summary:    Qt Multimedia module
+ Version:    5.6.2+v4l.20261024000000.qx1050
+-Release:    9%{?dist}
++Release:    10%{?dist}
+ License:    (LGPLv2 or LGPLv3) with exception or GPLv3 or Qt Commercial
+ URL:        https://www.qt.io/
+ Source0:    %{name}-%{version}.tar.bz2
+diff --git a/src/qtmultimediaquicktools/qdeclarativevideooutput.cpp b/src/qtmultimediaquicktools/qdeclarativevideooutput.cpp
+index daec4ed9..b3d7ba84 100644
+--- a/src/qtmultimediaquicktools/qdeclarativevideooutput.cpp
++++ b/src/qtmultimediaquicktools/qdeclarativevideooutput.cpp
+@@ -330,8 +330,10 @@ void QDeclarativeVideoOutput::_q_updateCameraInfo()
+ #ifndef QT_NO_DYNAMIC_CAST
+             if (!m_autoOrientation && !info.isNull()
+                     && dynamic_cast<QDeclarativeVideoRendererBackend *>(m_backend.data())) {
+-                sourceOrientation = info.orientation();
++                // Mirroring reverses the rotation, as in _q_screenOrientationChanged()
+                 sourceMirrored = info.position() == QCamera::FrontFace;
++                sourceOrientation = sourceMirrored ? (360 - info.orientation()) % 360
++                                                   : info.orientation();
+             }
+ #endif
+             setSourceTransform(sourceOrientation, sourceMirrored);
+-- 
+2.56.0
+

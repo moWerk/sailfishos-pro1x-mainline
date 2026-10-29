@@ -64,3 +64,7 @@ CONFIG_ZRAM=m
 CONFIG_ZRAM_BACKEND_LZ4=y
 CONFIG_ZRAM_BACKEND_ZSTD=y
 CONFIG_ZRAM_DEF_COMP_LZ4=y
+
+# Camera flash LED as a V4L2 flash subdevice: jolla-camera runs sandboxed with /sys read-only,
+# but may open /dev/v4l-subdev* (libcamera needs them), so the camera plugin switches the LED there
+CONFIG_V4L2_FLASH_LED_CLASS=m

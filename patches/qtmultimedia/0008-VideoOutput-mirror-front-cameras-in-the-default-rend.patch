@@ -1,0 +1,135 @@
+From 428a7975527e7faaeb7bd41a22a2074d0a54f9a0 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Sun, 25 Oct 2026 12:50:49 +0100
+Subject: [PATCH 08/11] VideoOutput: mirror front cameras in the default
+ renderer, Release 9
+
+The hybris video texture backend mirrors front camera frames (in source
+coordinates, before rotating); libcamera's Rotation and QCameraInfo::orientation
+of a front camera assume that mirror. Qt's renderer rotated without it, which on
+the Pro1-X front camera (Rotation 90) turns into a vertical flip: the selfie
+viewfinder looked upside down. Flip the texture horizontally for front cameras
+(XOR with the surface format's "mirrored" property). Viewfinder only; captured
+images and video are not mirrored, as on hybris.
+
+LLMGD-0 A0
+---
+ rpm/qtmultimedia.spec                         |  2 +-
+ .../qdeclarativevideooutput_p.h               |  5 ++++-
+ .../qdeclarativevideooutput.cpp               | 20 ++++++++++++-------
+ .../qdeclarativevideooutput_render.cpp        |  2 +-
+ 4 files changed, 19 insertions(+), 10 deletions(-)
+
+diff --git a/rpm/qtmultimedia.spec b/rpm/qtmultimedia.spec
+index bb5b44d0..c7b8aaad 100644
+--- a/rpm/qtmultimedia.spec
++++ b/rpm/qtmultimedia.spec
+@@ -1,7 +1,7 @@
+ Name:       qt5-qtmultimedia
+ Summary:    Qt Multimedia module
+ Version:    5.6.2+v4l.20261024000000.qx1050
+-Release:    8%{?dist}
++Release:    9%{?dist}
+ License:    (LGPLv2 or LGPLv3) with exception or GPLv3 or Qt Commercial
+ URL:        https://www.qt.io/
+ Source0:    %{name}-%{version}.tar.bz2
+diff --git a/src/multimedia/qtmultimediaquicktools_headers/qdeclarativevideooutput_p.h b/src/multimedia/qtmultimediaquicktools_headers/qdeclarativevideooutput_p.h
+index f9ae0db5..d3980689 100644
+--- a/src/multimedia/qtmultimediaquicktools_headers/qdeclarativevideooutput_p.h
++++ b/src/multimedia/qtmultimediaquicktools_headers/qdeclarativevideooutput_p.h
+@@ -96,6 +96,8 @@ public:
+     void setOrientation(int);
+     // orientation() plus the rotation the source itself needs (see _q_updateCameraInfo)
+     int renderOrientation() const { return m_orientation + m_sourceOrientation; }
++    // the source needs a horizontal flip (front camera, see _q_updateCameraInfo)
++    bool sourceMirrored() const { return m_sourceMirrored; }
+ 
+     bool autoOrientation() const;
+     void setAutoOrientation(bool);
+@@ -145,7 +147,7 @@ private Q_SLOTS:
+ 
+ private:
+     bool createBackend(QMediaService *service);
+-    void setSourceOrientation(int orientation);
++    void setSourceTransform(int orientation, bool mirrored);
+ 
+     static void filter_append(QQmlListProperty<QAbstractVideoFilter> *property, QAbstractVideoFilter *value);
+     static int filter_count(QQmlListProperty<QAbstractVideoFilter> *property);
+@@ -167,6 +169,7 @@ private:
+     QRectF m_contentRect;   // Destination pixel coordinates, unclipped
+     int m_orientation;
+     int m_sourceOrientation;
++    bool m_sourceMirrored;
+     bool m_autoOrientation;
+     QVideoOutputOrientationHandler *m_screenOrientationHandler;
+ 
+diff --git a/src/qtmultimediaquicktools/qdeclarativevideooutput.cpp b/src/qtmultimediaquicktools/qdeclarativevideooutput.cpp
+index 503b6eb0..daec4ed9 100644
+--- a/src/qtmultimediaquicktools/qdeclarativevideooutput.cpp
++++ b/src/qtmultimediaquicktools/qdeclarativevideooutput.cpp
+@@ -128,6 +128,7 @@ QDeclarativeVideoOutput::QDeclarativeVideoOutput(QQuickItem *parent) :
+     m_geometryDirty(true),
+     m_orientation(0),
+     m_sourceOrientation(0),
++    m_sourceMirrored(false),
+     m_autoOrientation(false),
+     m_screenOrientationHandler(0)
+ {
+@@ -321,29 +322,34 @@ void QDeclarativeVideoOutput::_q_updateCameraInfo()
+ 
+             // Without autoOrientation the frames are drawn as the sensor delivers them. The
+             // hybris video texture backend rotates them by the image-orientation tag of the
+-            // viewfinder stream (droidcamsrc); with Qt's own renderer (libcamerasrc, which
+-            // sends no such tag) rotate by the camera's mounting orientation instead.
++            // viewfinder stream (droidcamsrc) and mirrors front cameras; with Qt's own
++            // renderer (libcamerasrc, which sends no such tag) apply the camera's mounting
++            // orientation and the front camera mirror instead.
+             int sourceOrientation = 0;
++            bool sourceMirrored = false;
+ #ifndef QT_NO_DYNAMIC_CAST
+             if (!m_autoOrientation && !info.isNull()
+-                    && dynamic_cast<QDeclarativeVideoRendererBackend *>(m_backend.data()))
++                    && dynamic_cast<QDeclarativeVideoRendererBackend *>(m_backend.data())) {
+                 sourceOrientation = info.orientation();
++                sourceMirrored = info.position() == QCamera::FrontFace;
++            }
+ #endif
+-            setSourceOrientation(sourceOrientation);
++            setSourceTransform(sourceOrientation, sourceMirrored);
+         }
+     } else {
+         m_cameraInfo = QCameraInfo();
+-        setSourceOrientation(0);
++        setSourceTransform(0, false);
+     }
+ }
+ 
+-void QDeclarativeVideoOutput::setSourceOrientation(int orientation)
++void QDeclarativeVideoOutput::setSourceTransform(int orientation, bool mirrored)
+ {
+-    if (m_sourceOrientation == orientation)
++    if (m_sourceOrientation == orientation && m_sourceMirrored == mirrored)
+         return;
+ 
+     const bool oldAspect = qIsDefaultAspect(renderOrientation());
+     m_sourceOrientation = orientation;
++    m_sourceMirrored = mirrored;
+     m_geometryDirty = true;
+ 
+     if (oldAspect != qIsDefaultAspect(renderOrientation())) {
+diff --git a/src/qtmultimediaquicktools/qdeclarativevideooutput_render.cpp b/src/qtmultimediaquicktools/qdeclarativevideooutput_render.cpp
+index b76a20e9..90f299e5 100644
+--- a/src/qtmultimediaquicktools/qdeclarativevideooutput_render.cpp
++++ b/src/qtmultimediaquicktools/qdeclarativevideooutput_render.cpp
+@@ -256,7 +256,7 @@ void QDeclarativeVideoRendererBackend::updateGeometry()
+         m_sourceTextureRect.setBottom(top);
+     }
+ 
+-    if (videoSurface()->surfaceFormat().property("mirrored").toBool()) {
++    if (videoSurface()->surfaceFormat().property("mirrored").toBool() != q->sourceMirrored()) {
+         qreal left = m_sourceTextureRect.left();
+         m_sourceTextureRect.setLeft(m_sourceTextureRect.right());
+         m_sourceTextureRect.setRight(left);
+-- 
+2.56.0
+

@@ -1,0 +1,242 @@
+From 671ec5f4234d0bc194e1fef5b458f5ed1b05798e Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Thu, 29 Oct 2026 23:53:17 +0100
+Subject: [PATCH 10/11] camerabin: flash and video light through an LED class
+ device, Release 11
+
+libcamerasrc has no GstPhotography, so camerabin created no flash control
+and jolla-camera offered no flash. With QT_GSTREAMER_CAMERA_FLASH_LEDS (LED
+class names) the flash control drives those LEDs itself: video light while
+FlashTorch is set (video mode), and with FlashOn a pre-flash around a still
+capture (LED on, capture 400 ms later so the software AE has adapted, off
+when the frame is taken; 3 s safety timeout). Back camera only.
+QT_GSTREAMER_CAMERA_FLASH_BRIGHTNESS sets the value written (default 255).
+---
+ rpm/qtmultimedia.spec                         |  2 +-
+ .../gstreamer/camerabin/camerabinflash.cpp    | 62 ++++++++++++++++++-
+ .../gstreamer/camerabin/camerabinflash.h      | 12 ++++
+ .../camerabin/camerabinimagecapture.cpp       | 36 +++++++++++
+ .../gstreamer/camerabin/camerabinsession.cpp  |  2 +-
+ 5 files changed, 111 insertions(+), 3 deletions(-)
+
+diff --git a/rpm/qtmultimedia.spec b/rpm/qtmultimedia.spec
+index 7757e92e..3fcb842c 100644
+--- a/rpm/qtmultimedia.spec
++++ b/rpm/qtmultimedia.spec
+@@ -1,7 +1,7 @@
+ Name:       qt5-qtmultimedia
+ Summary:    Qt Multimedia module
+ Version:    5.6.2+v4l.20261024000000.qx1050
+-Release:    10%{?dist}
++Release:    11%{?dist}
+ License:    (LGPLv2 or LGPLv3) with exception or GPLv3 or Qt Commercial
+ URL:        https://www.qt.io/
+ Source0:    %{name}-%{version}.tar.bz2
+diff --git a/src/plugins/gstreamer/camerabin/camerabinflash.cpp b/src/plugins/gstreamer/camerabin/camerabinflash.cpp
+index f6221ae6..001a8f29 100644
+--- a/src/plugins/gstreamer/camerabin/camerabinflash.cpp
++++ b/src/plugins/gstreamer/camerabin/camerabinflash.cpp
+@@ -32,6 +32,8 @@
+ ****************************************************************************/
+ 
+ #include "camerabinflash.h"
++#include <QFile>
++#include <private/qgstutils_p.h>
+ #include "camerabinsession.h"
+ #include <gst/interfaces/photography.h>
+ 
+@@ -45,8 +47,19 @@ QT_BEGIN_NAMESPACE
+ 
+ CameraBinFlash::CameraBinFlash(CameraBinSession *session)
+     :QCameraFlashControl(session),
+-     m_session(session)
++     m_session(session),
++     m_ledMode(QCameraExposure::FlashOff),
++     m_ledOn(false)
+ {
++    // LED class names, comma separated, e.g. "white:flash-0"; brightness to switch them on
++    const QByteArray leds = qgetenv("QT_GSTREAMER_CAMERA_FLASH_LEDS");
++    for (const QByteArray &led : leds.split(','))
++        if (!led.trimmed().isEmpty())
++            m_leds << QString::fromLatin1(led.trimmed());
++    m_ledBrightness = qgetenv("QT_GSTREAMER_CAMERA_FLASH_BRIGHTNESS");
++    if (m_ledBrightness.isEmpty())
++        m_ledBrightness = "255";
++
+ #ifdef HAVE_GST_PHOTOGRAPHY
+     m_flashMap[GST_PHOTOGRAPHY_FLASH_MODE_AUTO] = QCameraExposure::FlashAuto;
+     m_flashMap[GST_PHOTOGRAPHY_FLASH_MODE_OFF] = QCameraExposure::FlashOff;
+@@ -58,10 +71,39 @@ CameraBinFlash::CameraBinFlash(CameraBinSession *session)
+ 
+ CameraBinFlash::~CameraBinFlash()
+ {
++    setLed(false);
++}
++
++bool CameraBinFlash::rearCamera() const
++{
++    return QGstUtils::cameraPosition(m_session->device(), m_session->sourceFactory())
++            != QCamera::FrontFace;
++}
++
++void CameraBinFlash::setLed(bool on)
++{
++    if (on == m_ledOn)
++        return;
++    for (const QString &led : m_leds) {
++        QFile f(QStringLiteral("/sys/class/leds/%1/brightness").arg(led));
++        if (!f.open(QIODevice::WriteOnly) || f.write(on ? m_ledBrightness : QByteArray("0")) < 0)
++            qWarning("camerabin: cannot switch flash LED %s: %s", qPrintable(led),
++                     qPrintable(f.errorString()));
++    }
++    m_ledOn = on;
++}
++
++bool CameraBinFlash::firesOnCapture() const
++{
++    return ledFlash() && m_ledMode.testFlag(QCameraExposure::FlashOn)
++            && m_session->captureMode() != QCamera::CaptureVideo && rearCamera();
+ }
+ 
+ QCameraExposure::FlashModes CameraBinFlash::flashMode() const
+ {
++    if (ledFlash())
++        return m_ledMode;
++
+     GstPhotographyFlashMode flashMode;
+     gst_photography_get_flash_mode(m_session->photography(), &flashMode);
+ 
+@@ -87,6 +129,13 @@ QCameraExposure::FlashModes CameraBinFlash::flashMode() const
+ 
+ void CameraBinFlash::setFlashMode(QCameraExposure::FlashModes mode)
+ {
++    if (ledFlash()) {
++        m_ledMode = mode;
++        // torch: on while the mode is set (video light); flash: only around a capture
++        setLed(mode.testFlag(QCameraExposure::FlashTorch) && rearCamera());
++        return;
++    }
++
+     GstPhotographyFlashMode flashMode;
+     gst_photography_get_flash_mode(m_session->photography(), &flashMode);
+ 
+@@ -110,6 +159,17 @@ void CameraBinFlash::setFlashMode(QCameraExposure::FlashModes mode)
+ 
+ bool CameraBinFlash::isFlashModeSupported(QCameraExposure::FlashModes mode) const
+ {
++    if (ledFlash()) {
++        if (mode == QCameraExposure::FlashOff)
++            return true;
++        if (!rearCamera())
++            return false;
++        if (m_session->captureMode() == QCamera::CaptureVideo)
++            return mode == QCameraExposure::FlashTorch
++                    || mode == (QCameraExposure::FlashTorch | QCameraExposure::FlashOff);
++        return mode == QCameraExposure::FlashOn;
++    }
++
+ #ifdef HAVE_GST_PHOTOGRAPHY
+     if (G_IS_OBJECT(m_session->cameraSource()) &&
+             G_IS_OBJECT_CLASS(G_OBJECT_GET_CLASS(G_OBJECT(m_session->cameraSource()))) &&
+diff --git a/src/plugins/gstreamer/camerabin/camerabinflash.h b/src/plugins/gstreamer/camerabin/camerabinflash.h
+index b84b217c..2483f1ca 100644
+--- a/src/plugins/gstreamer/camerabin/camerabinflash.h
++++ b/src/plugins/gstreamer/camerabin/camerabinflash.h
+@@ -60,8 +60,20 @@ public:
+ 
+     bool isFlashReady() const;
+ 
++    /* Flash LED driven through the LED class (QT_GSTREAMER_CAMERA_FLASH_LEDS), for camera
++     * sources without GstPhotography (libcamerasrc). */
++    bool ledFlash() const { return !m_leds.isEmpty(); }
++    bool firesOnCapture() const;
++    void setLed(bool on);
++
+ private:
++    bool rearCamera() const;
++
+     CameraBinSession *m_session;
++    QStringList m_leds;
++    QByteArray m_ledBrightness;
++    QCameraExposure::FlashModes m_ledMode;
++    bool m_ledOn;
+ 
+ #ifdef HAVE_GST_PHOTOGRAPHY
+     QMap<GstPhotographyFlashMode, QCameraExposure::FlashMode> m_flashMap;
+diff --git a/src/plugins/gstreamer/camerabin/camerabinimagecapture.cpp b/src/plugins/gstreamer/camerabin/camerabinimagecapture.cpp
+index 12d9603d..35fb4951 100644
+--- a/src/plugins/gstreamer/camerabin/camerabinimagecapture.cpp
++++ b/src/plugins/gstreamer/camerabin/camerabinimagecapture.cpp
+@@ -41,6 +41,15 @@
+ #include <private/qvideosurfacegstsink_p.h>
+ #include <private/qgstutils_p.h>
+ #include <QtMultimedia/qmediametadata.h>
++#include <QTimer>
++#ifdef HAVE_GST_PHOTOGRAPHY
++#include "camerabinflash.h"
++#endif
++
++// With an LED flash (no GstPhotography): the LED goes on this long before the capture, so
++// the software auto exposure has adapted when the frame is taken.
++#define LED_PREFLASH_MS 400
++#define LED_FLASH_TIMEOUT_MS 3000
+ #include <QtCore/qdebug.h>
+ #include <QtCore/qbuffer.h>
+ #include <QtGui/qimagereader.h>
+@@ -68,6 +77,17 @@ CameraBinImageCapture::CameraBinImageCapture(CameraBinSession *session)
+     connect(m_session, SIGNAL(handleReadyForCaptureChanged(bool)), this, SLOT(updateState()));
+ 
+     m_session->bus()->installMessageFilter(this);
++
++#ifdef HAVE_GST_PHOTOGRAPHY
++    // the LED flash goes off once the frame is taken (or the capture failed)
++    auto ledOff = [this]() {
++        if (CameraBinFlash *flash = m_session->cameraFlashControl())
++            if (flash->ledFlash() && !flash->flashMode().testFlag(QCameraExposure::FlashTorch))
++                flash->setLed(false);
++    };
++    connect(m_session, &CameraBinSession::imageCaptured, this, ledOff);
++    connect(this, &CameraBinImageCapture::error, this, ledOff);
++#endif
+ }
+ 
+ CameraBinImageCapture::~CameraBinImageCapture()
+@@ -90,6 +110,22 @@ int CameraBinImageCapture::capture(const QString &fileName)
+ 
+ #ifdef DEBUG_CAPTURE
+     qDebug() << Q_FUNC_INFO << m_requestId << fileName;
++#endif
++#ifdef HAVE_GST_PHOTOGRAPHY
++    CameraBinFlash *flash = m_session->cameraFlashControl();
++    if (flash && flash->firesOnCapture()) {
++        const int id = m_requestId;
++        flash->setLed(true);
++        QTimer::singleShot(LED_PREFLASH_MS, this, [this, id, fileName]() {
++            m_session->captureImage(id, fileName);
++        });
++        QTimer::singleShot(LED_FLASH_TIMEOUT_MS, this, [this]() {
++            if (CameraBinFlash *flash = m_session->cameraFlashControl())
++                if (!flash->flashMode().testFlag(QCameraExposure::FlashTorch))
++                    flash->setLed(false);
++        });
++        return m_requestId;
++    }
+ #endif
+     m_session->captureImage(m_requestId, fileName);
+     return m_requestId;
+diff --git a/src/plugins/gstreamer/camerabin/camerabinsession.cpp b/src/plugins/gstreamer/camerabin/camerabinsession.cpp
+index 92391acf..5109d73f 100644
+--- a/src/plugins/gstreamer/camerabin/camerabinsession.cpp
++++ b/src/plugins/gstreamer/camerabin/camerabinsession.cpp
+@@ -240,7 +240,7 @@ CameraBinExposure *CameraBinSession::cameraExposureControl()
+ 
+ CameraBinFlash *CameraBinSession::cameraFlashControl()
+ {
+-    if (!m_cameraFlashControl && photography())
++    if (!m_cameraFlashControl && (photography() || !qgetenv("QT_GSTREAMER_CAMERA_FLASH_LEDS").isEmpty()))
+         m_cameraFlashControl = new CameraBinFlash(this);
+     return m_cameraFlashControl;
+ }
+-- 
+2.56.0
+
