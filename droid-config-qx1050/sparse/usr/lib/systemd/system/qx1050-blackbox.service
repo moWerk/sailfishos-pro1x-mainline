@@ -1,4 +1,5 @@
 [Unit]
+# Not enabled by default since 2026-10-29; enable for boot debugging.
 Description=Pro1-X bring-up black box (state snapshots to /var/log/blackbox)
 DefaultDependencies=no
 After=local-fs.target

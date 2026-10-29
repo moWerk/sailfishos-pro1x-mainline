@@ -1,8 +1,10 @@
 [Unit]
 Description=Stable Wi-Fi MAC for wlan0
-# Started by udev when wlan0 appears (70-qx1050-wlan-mac.rules). connman has usually been
-# running for a while by then and saw the random address, so it is restarted once to file
-# the interface under the stable identity its saved networks use.
+# Started by udev when wlan0 appears (70-qx1050-wlan-mac.rules), about 16 s into a boot.
+# connman has been running for a while by then and saw the random address, so it is
+# restarted once to file the interface under the stable identity its saved networks use. Deliberate (boot audit
+# 2026-10-29): making connman wait for wlan0 instead would stall the session on boots where
+# the modem crashes and wlan0 appears only after its recovery (98 s seen).
 
 [Service]
 Type=oneshot

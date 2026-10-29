@@ -1,4 +1,6 @@
 [Unit]
+# Not enabled by default (it plays a test tone on every boot); start by hand:
+# systemctl start qx1050-audio-selftest
 Description=Bring-up: mic loopback check of the speaker after the card re-probe (logs PLAYS/SILENT)
 After=qx1050-audio-reprobe.service multi-user.target
 Wants=qx1050-audio-reprobe.service

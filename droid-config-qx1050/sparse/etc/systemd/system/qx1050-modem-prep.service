@@ -1,7 +1,8 @@
 [Unit]
 Description=Modem preparation: UIM provisioning session and rmnet links, then ofono
-# The modem's UIM service and IPA can take about a minute (the modem restarts once early in
-# boot). ofono is not started by network.target (network.target.wants/ofono.service is
+# The modem's UIM service and IPA can take about a minute, after a modem crash 90-100 s.
+# The script then keeps watching and prepares the modem again after every modem restart.
+# ofono is not started by network.target (network.target.wants/ofono.service is
 # masked in /etc): this unit starts it when the modem is prepared, so neither
 # network.target nor the user session (systemd-user-sessions orders after network.target)
 # waits for the modem.
@@ -10,7 +11,7 @@ Before=ofono.service
 
 [Service]
 Type=simple
-ExecStart=/bin/sh -c '/usr/bin/droid/qx1050-modem-prep.sh; exec /usr/bin/systemctl --no-block start ofono.service'
+ExecStart=/usr/bin/droid/qx1050-modem-prep.sh
 
 [Install]
 WantedBy=multi-user.target
