@@ -138,3 +138,18 @@ Each entry: what, where, evidence. None sent yet; the human author decides and s
   bandwidth, DDR follows CPU and display votes only. agatti.dtsi (QCM2290) has the pattern
   (MASTER_GFX3D -> SLAVE_EBI1, 1.72 / 2.93 / 3.88 / 6.88 GB/s). Measured on the
   Pro1-X: +8 to +37 % on bandwidth-bound Benchymark stages (notes/gpu-perf.md); kernel patch 0021.
+
+## mce-plugin-libhybris: multicolor backend (possible contribution, not proposed)
+
+`patches/mce-plugin-libhybris/0001-sysfs-led-add-multicolor-backend.patch`: a sysfs backend
+for one LED class device of the kernel multicolor framework (`multi_intensity`,
+`multi_index`), as mainline device trees describe RGB indicators. Useful to every native port
+with such a DT. The author decided on 2026-10-29 not to open a PR for now.
+
+## qcom-spmi-lpg: multicolor blink ignores the color (possible kernel fix)
+
+`lpg_blink_mc_set` (drivers/leds/rgb/leds-qcom-lpg.c, 7.3) gives every channel of a
+multicolor LED the same low-frequency PWM duty cycle, regardless of `multi_intensity`, and the
+channels run out of phase: a green `timer`-trigger blink on the Pro1-X (PMI632) showed a
+red/green/blue sweep instead. A fix would enable only channels with a nonzero intensity and
+start them together. The mce backend avoids hardware blinking until then.

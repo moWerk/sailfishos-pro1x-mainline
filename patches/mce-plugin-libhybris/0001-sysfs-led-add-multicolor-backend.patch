@@ -1,0 +1,519 @@
+From 2548a09740a3d7e39137afacef376c35cb4a1f05 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Thu, 29 Oct 2026 20:38:58 +0100
+Subject: [PATCH] sysfs-led: add multicolor backend
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Mainline device trees describe RGB indicators as one LED class device
+of the kernel's multicolor framework (multi_intensity, multi_index),
+e.g. the qcom-spmi-lpg "multi-led". None of the sysfs backends can
+drive that: they expect one LED device per color.
+
+The multicolor backend writes the color to multi_intensity (in the
+order of multi_index) and switches brightness. It blinks with a timer
+on the brightness file instead of the kernel's timer trigger:
+qcom-spmi-lpg hands the trigger to its blink_set, which runs every
+channel at the same duty cycle regardless of multi_intensity and out
+of phase, showing a color sweep. Breathing uses the sw breathing
+logic. Used only when selected in config (inifiles/60-multicolor.ini).
+
+Tested on the F(x)tec Pro1-X (SM6115, PMI632 LPG, Linux 7.3) with
+SailfishOS 5.2: call, SMS, notification patterns blink in their color,
+battery full breathes.
+
+Disclosure: LLMGD-3 · origin O1 (author set the goal and verified every pattern by eye, the model wrote the code; exercised on the device)
+LLMGD: v0.3; assurance=A3; flags=U,T; origin=O1; origin_headline=O1; scope=sysfs-led-multicolor.c,sysfs-led-multicolor.h,sysfs-led-main.c,Makefile,inifiles/60-multicolor.ini; graded-by=model; retrieval=none
+---
+ Makefile                   |   1 +
+ inifiles/60-multicolor.ini |  11 ++
+ sysfs-led-main.c           |   5 +
+ sysfs-led-multicolor.c     | 384 +++++++++++++++++++++++++++++++++++++
+ sysfs-led-multicolor.h     |  30 +++
+ 5 files changed, 431 insertions(+)
+ create mode 100644 inifiles/60-multicolor.ini
+ create mode 100644 sysfs-led-multicolor.c
+ create mode 100644 sysfs-led-multicolor.h
+
+diff --git a/Makefile b/Makefile
+index 8404a62..4fbfe59 100644
+--- a/Makefile
++++ b/Makefile
+@@ -142,6 +142,7 @@ hybris_OBJS += sysfs-led-f5121.pic.o
+ hybris_OBJS += sysfs-led-hammerhead.pic.o
+ hybris_OBJS += sysfs-led-htcvision.pic.o
+ hybris_OBJS += sysfs-led-main.pic.o
++hybris_OBJS += sysfs-led-multicolor.pic.o
+ hybris_OBJS += sysfs-led-redgreen.pic.o
+ hybris_OBJS += sysfs-led-util.pic.o
+ hybris_OBJS += sysfs-led-vanilla.pic.o
+diff --git a/inifiles/60-multicolor.ini b/inifiles/60-multicolor.ini
+new file mode 100644
+index 0000000..5a80c97
+--- /dev/null
++++ b/inifiles/60-multicolor.ini
+@@ -0,0 +1,11 @@
++[LEDConfigHybris]
++# Choose multicolor backend: one LED class device from the kernel's
++# multicolor framework (multi_index lists red, green and blue)
++BackEnd=multicolor
++# Base directory of the LED
++LedDirectory=/sys/class/leds/rgb:status
++# Built-in defaults for directory relative paths
++#BrightnessFile=brightness
++#MaxBrightnessFile=max_brightness
++#MultiIntensityFile=multi_intensity
++#MultiIndexFile=multi_index
+diff --git a/sysfs-led-main.c b/sysfs-led-main.c
+index 4bdf3e6..a29a9ea 100644
+--- a/sysfs-led-main.c
++++ b/sysfs-led-main.c
+@@ -32,6 +32,7 @@
+ #include "sysfs-led-binary.h"
+ #include "sysfs-led-redgreen.h"
+ #include "sysfs-led-white.h"
++#include "sysfs-led-multicolor.h"
+ 
+ #include "plugin-logging.h"
+ #include "plugin-config.h"
+@@ -288,6 +289,10 @@ led_control_probe(led_control_t *self)
+      * to be present for red, green and blue channels. */
+     { "vanilla", led_control_vanilla_probe },
+ 
++    /* The multicolor backend drives one kernel multicolor LED
++     * ('multi_intensity'); used only when selected in config. */
++    { "multicolor", led_control_multicolor_probe },
++
+     /* The redgreen uses subset of "standard" rgb led
+      * control paths, so to avoid false positive matches
+      * it must be probed after rgb led controls. */
+diff --git a/sysfs-led-multicolor.c b/sysfs-led-multicolor.c
+new file mode 100644
+index 0000000..38b1c4e
+--- /dev/null
++++ b/sysfs-led-multicolor.c
+@@ -0,0 +1,384 @@
++/** @file sysfs-led-multicolor.c
++ *
++ * mce-plugin-libhybris - Libhybris plugin for Mode Control Entity
++ * <p>
++ * Copyright (C) 2026 moWerk
++ *
++ * mce-plugin-libhybris is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License.
++ *
++ * mce-plugin-libhybris is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public License
++ * along with mce-plugin-libhybris; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
++ */
++
++/* ========================================================================= *
++ * Multicolor led control
++ *
++ * One LED class device registered by the kernel's multicolor framework
++ * (Documentation/leds/leds-class-multicolor.rst), as mainline device trees
++ * describe RGB indicators (e.g. qcom-spmi-lpg "multi-led"). The device:
++ * - must have 'brightness' and 'max_brightness' control files
++ * - must have 'multi_intensity' (one value per color, order as in
++ *   'multi_index'), and 'multi_index' must list red, green and blue
++ *
++ * The color goes to 'multi_intensity', 'brightness' switches the LED on at
++ * full scale or off. Blinking is done here with a timer that switches
++ * 'brightness' at the period edges: the kernel 'timer' trigger hands blinking
++ * to the driver, and qcom-spmi-lpg (7.3) blinks a multicolor LED with every
++ * channel at the same duty cycle regardless of 'multi_intensity' and out of
++ * phase, which shows as a color sweep instead of the color. Breathing uses
++ * the sw breathing logic.
++ * ========================================================================= */
++
++#include "sysfs-led-multicolor.h"
++
++#include "sysfs-led-util.h"
++#include "sysfs-val.h"
++#include "plugin-config.h"
++#include "plugin-logging.h"
++
++#include <stdio.h>
++#include <string.h>
++#include <fcntl.h>
++#include <unistd.h>
++
++#include <glib.h>
++
++/* ------------------------------------------------------------------------- *
++ * PROTOTYPES
++ * ------------------------------------------------------------------------- */
++
++typedef struct
++{
++    const char *max_brightness;   // R
++    const char *brightness;       // W
++    const char *multi_intensity;  // W
++    const char *multi_index;      // R
++} led_paths_multicolor_t;
++
++typedef struct
++{
++    sysfsval_t *cached_max_brightness;
++    sysfsval_t *cached_brightness;
++    int         intensity_fd;
++    int         index[3];        // position of red, green, blue in multi_index
++    int         count;           // number of colors in multi_index
++    char        last[64];        // last multi_intensity written
++    int         on_ms, off_ms;   // requested blink periods
++    int         level;           // brightness when on
++    guint       blink_id;        // blink timer
++    bool        blink_on;        // current blink phase
++} led_channel_multicolor_t;
++
++static void led_channel_multicolor_init      (led_channel_multicolor_t *self);
++static void led_channel_multicolor_close     (led_channel_multicolor_t *self);
++static bool led_channel_multicolor_parse_index(led_channel_multicolor_t *self, const char *path);
++static bool led_channel_multicolor_probe     (led_channel_multicolor_t *self, const led_paths_multicolor_t *path);
++static void led_channel_multicolor_set_value (led_channel_multicolor_t *self, int r, int g, int b);
++
++static void led_control_multicolor_blink_cb  (void *data, int on_ms, int off_ms);
++static void led_control_multicolor_value_cb  (void *data, int r, int g, int b);
++static void led_control_multicolor_close_cb  (void *data);
++
++bool        led_control_multicolor_probe     (led_control_t *self);
++
++/* ------------------------------------------------------------------------- *
++ * ONE_CHANNEL
++ * ------------------------------------------------------------------------- */
++
++static void
++led_channel_multicolor_init(led_channel_multicolor_t *self)
++{
++    self->cached_max_brightness = sysfsval_create();
++    self->cached_brightness     = sysfsval_create();
++    self->intensity_fd          = -1;
++    self->count                 = 0;
++    *self->last                 = 0;
++    self->on_ms = self->off_ms  = 0;
++    self->level                 = 0;
++    self->blink_id              = 0;
++    self->blink_on              = false;
++}
++
++static void
++led_channel_multicolor_close(led_channel_multicolor_t *self)
++{
++    sysfsval_delete(self->cached_max_brightness),
++        self->cached_max_brightness = 0;
++    sysfsval_delete(self->cached_brightness),
++        self->cached_brightness = 0;
++
++    if( self->intensity_fd != -1 )
++        close(self->intensity_fd), self->intensity_fd = -1;
++
++    if( self->blink_id )
++        g_source_remove(self->blink_id), self->blink_id = 0;
++}
++
++static bool
++led_channel_multicolor_parse_index(led_channel_multicolor_t *self,
++                                   const char *path)
++{
++    static const char * const color[3] = { "red", "green", "blue" };
++
++    bool   ack  = false;
++    gchar *text = 0;
++    gchar **tok = 0;
++
++    if( !path || !g_file_get_contents(path, &text, 0, 0) )
++        goto cleanup;
++
++    tok = g_strsplit_set(g_strstrip(text), " \t", 0);
++
++    self->count = 0;
++    for( int c = 0; c < 3; ++c )
++        self->index[c] = -1;
++
++    for( int i = 0; tok[i]; ++i ) {
++        if( !*tok[i] )
++            continue;
++        for( int c = 0; c < 3; ++c ) {
++            if( !strcmp(tok[i], color[c]) )
++                self->index[c] = self->count;
++        }
++        ++self->count;
++    }
++
++    ack = (self->index[0] != -1 && self->index[1] != -1 &&
++           self->index[2] != -1);
++
++cleanup:
++    if( !ack )
++        mce_log(LL_WARN, "%s: no red, green and blue in multi_index",
++                path ?: "(null)");
++    g_strfreev(tok);
++    g_free(text);
++    return ack;
++}
++
++static bool
++led_channel_multicolor_probe(led_channel_multicolor_t *self,
++                             const led_paths_multicolor_t *path)
++{
++    bool res = false;
++
++    if( !sysfsval_open_rw(self->cached_brightness, path->brightness) )
++        goto cleanup;
++
++    if( !sysfsval_open_ro(self->cached_max_brightness, path->max_brightness) )
++        goto cleanup;
++
++    sysfsval_refresh(self->cached_max_brightness);
++
++    if( sysfsval_get(self->cached_max_brightness) <= 0 )
++        goto cleanup;
++
++    if( !led_channel_multicolor_parse_index(self, path->multi_index) )
++        goto cleanup;
++
++    if( !path->multi_intensity ||
++        (self->intensity_fd = open(path->multi_intensity, O_WRONLY)) == -1 )
++        goto cleanup;
++
++    res = true;
++
++cleanup:
++
++    sysfsval_close(self->cached_max_brightness);
++
++    if( !res ) {
++        sysfsval_close(self->cached_brightness);
++        if( self->intensity_fd != -1 )
++            close(self->intensity_fd), self->intensity_fd = -1;
++    }
++
++    return res;
++}
++
++static gboolean
++led_channel_multicolor_blink_step(gpointer aptr)
++{
++    led_channel_multicolor_t *self = aptr;
++
++    self->blink_on = !self->blink_on;
++    sysfsval_set(self->cached_brightness, self->blink_on ? self->level : 0);
++    self->blink_id = g_timeout_add(self->blink_on ? self->on_ms : self->off_ms,
++                                   led_channel_multicolor_blink_step, self);
++    return G_SOURCE_REMOVE;
++}
++
++static void
++led_channel_multicolor_set_value(led_channel_multicolor_t *self,
++                                 int r, int g, int b)
++{
++    /* The intensities share the scale of max_brightness. */
++    int max = sysfsval_get(self->cached_max_brightness);
++    int rgb[3] = {
++        led_util_scale_value(r, max),
++        led_util_scale_value(g, max),
++        led_util_scale_value(b, max),
++    };
++
++    /* Kernel order of the colors, other colors (if any) off */
++    int  value[16] = { 0 };
++    char text[sizeof self->last];
++    int  len = 0;
++
++    for( int c = 0; c < 3; ++c )
++        if( self->index[c] < (int)G_N_ELEMENTS(value) )
++            value[self->index[c]] = rgb[c];
++
++    for( int i = 0; i < self->count && i < (int)G_N_ELEMENTS(value); ++i )
++        len += snprintf(text + len, sizeof text - len, "%s%d",
++                        i ? " " : "", value[i]);
++
++    bool on    = rgb[0] || rgb[1] || rgb[2];
++    bool blink = on && self->on_ms > 0 && self->off_ms > 0;
++
++    /* Color first, then brightness: brightness applies the intensities */
++    if( on && strcmp(text, self->last) ) {
++        if( pwrite(self->intensity_fd, text, len, 0) == len ) {
++            snprintf(self->last, sizeof self->last, "%s", text);
++            sysfsval_invalidate(self->cached_brightness);
++        }
++        else {
++            mce_log(LL_WARN, "multi_intensity write failed: %m");
++        }
++    }
++
++    self->level = on ? max : 0;
++
++    if( !blink ) {
++        if( self->blink_id )
++            g_source_remove(self->blink_id), self->blink_id = 0;
++        sysfsval_set(self->cached_brightness, self->level);
++    }
++    else if( !self->blink_id ) {
++        /* Start with the on phase */
++        self->blink_on = true;
++        sysfsval_set(self->cached_brightness, self->level);
++        self->blink_id = g_timeout_add(self->on_ms,
++                                       led_channel_multicolor_blink_step,
++                                       self);
++    }
++    else if( self->blink_on ) {
++        /* Running: a new color or level shows from now on */
++        sysfsval_set(self->cached_brightness, self->level);
++    }
++}
++
++/* ------------------------------------------------------------------------- *
++ * MULTICOLOR_LED_CONTROL
++ * ------------------------------------------------------------------------- */
++
++#define MULTICOLOR_CHANNELS 1
++
++static void
++led_control_multicolor_blink_cb(void *data, int on_ms, int off_ms)
++{
++    led_channel_multicolor_t *channel = data;
++
++    /* New periods take effect from the next value_cb */
++    if( channel->on_ms != on_ms || channel->off_ms != off_ms ) {
++        if( channel->blink_id )
++            g_source_remove(channel->blink_id), channel->blink_id = 0;
++        channel->on_ms  = on_ms;
++        channel->off_ms = off_ms;
++    }
++}
++
++static void
++led_control_multicolor_value_cb(void *data, int r, int g, int b)
++{
++    led_channel_multicolor_t *channel = data;
++    led_channel_multicolor_set_value(channel + 0, r, g, b);
++}
++
++static void
++led_control_multicolor_close_cb(void *data)
++{
++    led_channel_multicolor_t *channel = data;
++    led_channel_multicolor_close(channel + 0);
++}
++
++static bool
++led_control_multicolor_dynamic_probe(led_channel_multicolor_t *channel)
++{
++    /* See inifiles/60-multicolor.ini for example */
++    static const objconf_t multicolor_conf[] =
++    {
++        OBJCONF_FILE(led_paths_multicolor_t, brightness,      Brightness),
++        OBJCONF_FILE(led_paths_multicolor_t, max_brightness,  MaxBrightness),
++        OBJCONF_FILE(led_paths_multicolor_t, multi_intensity, MultiIntensity),
++        OBJCONF_FILE(led_paths_multicolor_t, multi_index,     MultiIndex),
++        OBJCONF_STOP
++    };
++
++    static const char * const pfix[MULTICOLOR_CHANNELS] =
++    {
++        "Led",
++    };
++
++    bool ack = false;
++
++    led_paths_multicolor_t paths[MULTICOLOR_CHANNELS];
++
++    memset(paths, 0, sizeof paths);
++    for( size_t i = 0; i < MULTICOLOR_CHANNELS; ++i )
++        objconf_init(multicolor_conf, &paths[i]);
++
++    for( size_t i = 0; i < MULTICOLOR_CHANNELS; ++i ) {
++        if( !objconf_parse(multicolor_conf, &paths[i], pfix[i]) )
++            goto cleanup;
++
++        if( !led_channel_multicolor_probe(channel+i, &paths[i]) )
++            goto cleanup;
++    }
++
++    ack = true;
++
++cleanup:
++
++    for( size_t i = 0; i < MULTICOLOR_CHANNELS; ++i )
++        objconf_quit(multicolor_conf, &paths[i]);
++
++    return ack;
++}
++
++bool
++led_control_multicolor_probe(led_control_t *self)
++{
++    static led_channel_multicolor_t channel[MULTICOLOR_CHANNELS];
++
++    bool res = false;
++
++    led_channel_multicolor_init(channel + 0);
++
++    self->name   = "multicolor";
++    self->data   = channel;
++    self->enable = 0;
++    self->blink  = led_control_multicolor_blink_cb;
++    self->value  = led_control_multicolor_value_cb;
++    self->close  = led_control_multicolor_close_cb;
++
++    /* We can use sw breathing logic */
++    self->can_breathe = true;
++
++    /* No static paths: multicolor LED names are device specific,
++     * the backend is used only when selected in config. */
++    if( self->use_config )
++        res = led_control_multicolor_dynamic_probe(channel);
++
++    if( !res )
++        led_control_close(self);
++
++    return res;
++}
+diff --git a/sysfs-led-multicolor.h b/sysfs-led-multicolor.h
+new file mode 100644
+index 0000000..3c2c619
+--- /dev/null
++++ b/sysfs-led-multicolor.h
+@@ -0,0 +1,30 @@
++/** @file sysfs-led-multicolor.h
++ *
++ * mce-plugin-libhybris - Libhybris plugin for Mode Control Entity
++ * <p>
++ * Copyright (C) 2026 moWerk
++ * <p>
++ *
++ * mce-plugin-libhybris is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License.
++ *
++ * mce-plugin-libhybris is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public License
++ * along with mce-plugin-libhybris; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
++ */
++
++#ifndef  SYSFS_LED_MULTICOLOR_H_
++# define SYSFS_LED_MULTICOLOR_H_
++
++# include "sysfs-led-main.h"
++
++bool led_control_multicolor_probe(led_control_t *self);
++
++#endif /* SYSFS_LED_MULTICOLOR_H_ */
+-- 
+2.56.0
+
