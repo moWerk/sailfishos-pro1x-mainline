@@ -8,7 +8,9 @@
 set -eu
 [ $# -ge 3 ] || { echo "usage: $0 Image dtb initramfs.cpio.gz [out.img]"; exit 1; }
 image=$1; dtb=$2; initrd=$3; out=${4:-build/sfos-boot.img}
-cmdline=${CMDLINE:-"console=ttyMSM0,115200n8 console=tty1 loglevel=3 lsm=landlock,yama,bpf"}
+# Quiet: no kernel console on the screen (serial only), no Tux logo, no cursor, so the
+# initramfs splash stays until lipstick draws. Add console=tty1 to see the boot log.
+cmdline=${CMDLINE:-"console=ttyMSM0,115200n8 loglevel=3 lsm=landlock,yama,bpf logo.nologo vt.global_cursor_default=0"}
 t=$(mktemp -d); trap 'rm -rf "$t"' EXIT
 gzip -n -9 -c "$image" > "$t/Image.gz"
 cat "$t/Image.gz" "$dtb" > "$t/Image.gz-dtb"

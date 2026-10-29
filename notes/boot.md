@@ -48,10 +48,21 @@ a single SailfishOS boot from it (an extlinux entry with this kernel and initram
 initramfs restores NixOS's extlinux.conf before switching, so the next boot is NixOS again.
 The U-Boot menu (Volume Down) keeps earlier entries selectable.
 
+## Splash
+
+The firmware's splash (Android logo) is signed; the `splash` partition is ignored on this
+phone (tested 2026-10-29 with the Pro¹'s `DDPH` v1 layout, images at 0x4000 and 0x800000,
+and with Qualcomm's UEFI layout, 0x4000 zero bytes then a BMP; both left the Android logo,
+and the partition is zeroed again). The port's own splash: the initramfs draws a PPM with
+busybox `fbsplash` on `/dev/fb0` (DRM fbdev emulation, 1080x2160, 32 bpp, stride 4352)
+at about 2 s; with the kernel console on serial only, nothing overwrites it until lipstick
+takes the display. See README "Custom boot splash". A few frames of glitches remain while
+msm DRM takes over the display from the firmware.
+
 ## Still open
 
 - The rootfs is still a directory on the NixOS-formatted userdata partition. The SailfishOS
   convention is LVM on userdata (`sailfish/root`, `sailfish/home`); that layout is also what
   home encryption needs (LUKS on the home volume). Moving to it erases userdata.
-- Boot splash (yamui in the initramfs) and a quiet console.
+- Glitches between the Android logo and the splash; reboot and shutdown take 10-15 s.
 - Firmware in the rootfs came from the Nix `pro1x-firmware` package.

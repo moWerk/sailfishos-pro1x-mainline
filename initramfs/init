@@ -15,6 +15,13 @@ mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
 
 log() { echo "sfos-initramfs: $*" > /dev/kmsg; }
+
+# Boot splash: stays on screen until lipstick draws (the kernel console is not on tty1).
+if [ -f /splash.ppm ]; then
+  i=0
+  while [ ! -e /dev/fb0 ] && [ $i -lt 30 ]; do i=$((i + 1)); sleep 0.1; done
+  fbsplash -s /splash.ppm -d /dev/fb0 2>/dev/null && log "splash shown"
+fi
 fail() { log "FAILED: $*, powering off in 10 s"; sleep 10; poweroff -f; }
 
 dev=

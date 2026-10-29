@@ -36,6 +36,28 @@ experience, not merged as is. Every decision that was taken is written down here
 | Modem | intermittent watchdog crash shortly after boot (about every second boot, recovers by itself after 40 s): Wi-Fi, data and SIM then come up about a minute late. Unsolved | `notes/modem-dog-crash.md` |
 | Still tied to NixOS | the rootfs is a directory on the NixOS-formatted userdata partition (next: SailfishOS LVM layout, which home encryption needs), firmware set from the Nix package | `notes/boot.md` |
 
+## Custom boot splash
+
+On the Pro¹-X the first logo after power-on (Android) is drawn by the signed firmware and
+cannot be changed. Its `splash` partition, which on the Pro¹ held the boot logo, is ignored:
+tested with the Pro¹'s format (`DDPH` header) and with Qualcomm's UEFI format (16 KiB of
+zeros, then a BMP). Since this port boots its own kernel and initramfs, the screen after the
+Android logo is ours: instead of the scrolling kernel console the phone shows a full-screen
+image until the SailfishOS UI takes over.
+
+1. Draw a 1080x2160 image (portrait) and convert it to a binary PPM:
+   `magick splash.png -depth 8 ppm:splash.ppm` (or GIMP: Export As, `.ppm`, raw).
+2. Build the initramfs with it: `SPLASH=splash.ppm scripts/build-initramfs.sh busybox`.
+   `initramfs/init` draws it on `/dev/fb0` with busybox `fbsplash` as its first step.
+3. Build the boot image with `scripts/build-bootimg.sh`: its default command line keeps the
+   console off the screen (`console=ttyMSM0` only, `logo.nologo`,
+   `vt.global_cursor_default=0`), so nothing draws over the image.
+4. Flash `boot_a` (`fastboot flash boot_a`, or `dd` to `/dev/disk/by-partlabel/boot_a` from
+   SailfishOS).
+
+A few frames of glitches remain between the Android logo and the splash, while the display
+driver takes over. Details in `notes/boot.md`.
+
 Getting it running is not yet a download-and-flash affair: the rootfs is built with
 `scripts/stage1-base.sh` and `stage2-device.sh`, the kernel with `kernel/build-kernel.sh`,
 and its rootfs still lives on the partition of nyymi609's NixOS port. Read `notes/` before trying.
