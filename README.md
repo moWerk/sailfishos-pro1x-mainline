@@ -12,18 +12,20 @@ October 2026. It is meant to be read and rewritten by someone with porting and u
 experience, not merged as is. Every decision that was taken is written down here or in
 `notes/`; where something was guessed, the file says so.
 
-## State (2026-10-29)
+## State (updated 2026-10-29 22:30 CET)
 
 | Area | State | Where |
 |---|---|---|
 | OS | SailfishOS 5.2.0.22, upgraded in place from 5.1.0.11; Jolla Store, OS update page, accounts and sync from `patterns-sailfish-consumer-generic` | `notes/sfos-5.2-upgrade.md`, `scripts/stage1-base.sh` |
-| Kernel | own 7.3.0-qx1050: v7.3 + 24 patches (`kernel/patches-7.3/`, what each is and its upstream status in `kernel/HANDOVER.md`) | `kernel/` |
+| Kernel | own 7.3.0-qx1050: v7.3 + 25 patches (`kernel/patches-7.3/`, what each is and its upstream status in `kernel/HANDOVER.md`) | `kernel/` |
 | Mobile data | works, toggle in Settings works: ofono patch 0020 (DPM open port, QMAPv4 with DL aggregation, bind without client type), rmnet links with MAPv4 checksum offload | `patches/ofono/`, `sparse/usr/bin/droid/qx1050-modem-prep.sh` |
 | Calls, SMS | calls connect both ways, ringtone plays, SMS; Settings > SIM cards (`jolla-settings-networking-multisim`) | |
 | Call audio | **works** both ways on the earpiece and the speaker, switching between them takes about 2 s, volume keys set the call volume (2026-10-29). The codec DMA back ends stall on every start in the call profile; the helper restarts them. Bluetooth earbuds in calls, wired headset and an echo canceller still open | `packages/qx1050-voicecall/README.md` |
 | Sensors | **working** from boot: accelerometer, magnetometer/compass, light, proximity (gyroscope adaptor built, untested) through the ADSP Sensor Core (hexagonrpcd + libssc + our sensorfw adaptors). Auto-rotation, tilt in apps, auto brightness, proximity in mce. libssc patched so a missing sensor service no longer blocks sensorfwd (lipstick 25 s -> 7 s) | `packages/sensorfw-qt5-ssc/`, `notes/sensors-design.md` |
-| Charge limit | Settings > Battery charge limit: mce switches the PMI632 charge enable through a new `charging_enabled` attribute (kernel patch 0017); stops at the set limit | `sparse/etc/mce/92-qx1050-charging.ini` |
+| Charging | Settings > Battery charge limit: mce switches the PMI632 charge enable through a new `charging_enabled` attribute (kernel patch 0017); stops at the set limit. Plug-in shows the charging notification with its sound, then the USB mode notification; unplug is silent (kernel patch 0025: plug changes reported at once, battery event before the charger's on unplug; usb-moded cable connection delay 500 ms) (2026-10-29). Low battery warning works. 5 V only, input limited to 1.5 A (no USB-PD fast charging yet) | `sparse/etc/mce/92-qx1050-charging.ini`, `sparse/var/lib/environment/usb-moded/` |
 | Display | panel turns off with a clean fade: the panel driver now sends display off while video still runs (kernel patch 0023); before, every blank ended in one corrupted full-brightness frame. Double-tap to wake works | |
+| Touch | works, multitouch | kernel |
+| Wi-Fi | connman, stable MAC derived from machine-id (connman is restarted once when wlan0 appears, on purpose: `notes/boot-audit.md`) | `sparse/lib/udev/rules.d/70-qx1050-wlan-mac.rules` |
 | Storage, memory | UFS reads at queue depth 1 nearly doubled (Benchymark storage 72/48 -> 76/86 MB/s write/read): the UFS PM QoS vote now follows the clocks (kernel patch 0024), so CPUs stay out of deep idle (666 us exit latency) while UFS is busy. zram swap: 3.5 GB lz4 (Jolla's `zram` package, CONFIG_ZRAM=m) (2026-10-29) | `kernel/patches-7.3/0024-*`, `kernel/sfos.fragment` |
 | GPU | Adreno 610 on freedreno (Mesa 25.1.8); GPU memory-bandwidth votes added (kernel patch 0021): +8 to +37 % on bandwidth-bound Benchymark stages | `notes/gpu-perf.md` |
 | Camera | libcamera 0.7.2 with the GPU software ISP, about 32 fps at 1280x960, rear autofocus, video recording (Venus H.264) | `patches/libcamera/` |
@@ -37,6 +39,12 @@ experience, not merged as is. Every decision that was taken is written down here
 | Boot | straight from the Android bootloader: SailfishOS boot image in `boot_a`, no second bootloader (2026-10-29); the slot is marked successful after every boot (qbootctl). User session at 14 s, lipstick ready at about 22 s. Dual boot with NixOS through U-Boot stays possible | `notes/boot.md`, `scripts/build-bootimg.sh` |
 | Alarm | **power-off alarm works**: the phone switches itself on at a Clock alarm and rings (dsme programs the PMIC RTC relative to its own clock; Linux cannot set that RTC, TrustZone) | |
 | Modem | intermittent watchdog crash shortly after boot (about every second boot, recovers by itself after 40 s): Wi-Fi, data and SIM then come up about a minute late. Unsolved | `notes/modem-dog-crash.md` |
+| Vibration | ngfd ffmemless, AW86224 at gain 7 / drive 100 | `sparse/usr/share/ngfd/plugins.d/60-qx1050-ffmemless.ini`, `sparse/etc/modprobe.d/aw86224.conf` |
+| Volume keys | work (lipstick + PulseAudio mainvolume), also for the call volume | |
+| Hardware keyboard | German QWERTZ, Fn legends on AltGr (level 3) | `sparse/usr/share/X11/xkb/symbols/fxtec_vndr/pro1x`, DT patch |
+| Keyboard slide, backlight | mce drives both; DT reports the slide the way mce reads it | `sparse/etc/mce/`, kernel patch `sfos-dt` |
+| Lock code, encryption | not yet: home is a directory, not its own volume; the SailfishOS LVM layout (next) gives home encryption | `notes/boot.md` |
+| Performance | Benchymark: CPU about as hybris; storage 76/86 MB/s write/read (was 72/48); GPU +8 to +37 % with the bandwidth votes; zram swap | `notes/gpu-perf.md` |
 | Still tied to NixOS | the rootfs is a directory on the NixOS-formatted userdata partition (next: SailfishOS LVM layout, which home encryption needs), firmware set from the Nix package | `notes/boot.md` |
 
 ## Custom boot splash
@@ -67,30 +75,6 @@ driver takes over. Details in `notes/boot.md`.
 Getting it running is not yet a download-and-flash affair: the rootfs is built with
 `scripts/stage1-base.sh` and `stage2-device.sh`, the kernel with `kernel/build-kernel.sh`,
 and its rootfs still lives on the partition of nyymi609's NixOS port. Read `notes/` before trying.
-
-The table below is the state of 2026-10-24 and is kept for the detail it carries.
-
-## State (2026-10-24)
-
-| Area | State | Where |
-|---|---|---|
-| Boot | one-shot dual boot next to NixOS: U-Boot extlinux entry, busybox initramfs bind-mounts `/sfos/rootfs` | `initramfs/`, `scripts/sfos-boot-once.sh` |
-| Display, GPU | lipstick on DRM/KMS, Mesa freedreno (Adreno 610), 1.5 pixel ratio | `sparse/var/lib/environment/compositor/`, `sparse/etc/eglfs-config.json` |
-| Touch | works, multitouch | kernel |
-| Wi-Fi | connman, stable MAC derived from machine-id | `sparse/lib/udev/rules.d/70-qx1050-wlan-mac.rules` |
-| USB network | g_cdc built in, 172.16.42.1, firewall opened | `sparse/usr/bin/droid/qx1050-usb-net.sh` |
-| Audio | PulseAudio 17 + UCM2 + ohm policy; speaker, built-in mic. Needs piggz's PulseAudio build and the card re-probe workaround (below) | `sparse/etc/pulse/`, `sparse/usr/share/alsa/ucm2/`, `sparse/etc/ohm/` |
-| Vibration | ngfd ffmemless, AW86224 at gain 7 / drive 100 | `sparse/usr/share/ngfd/plugins.d/60-qx1050-ffmemless.ini`, `sparse/etc/modprobe.d/aw86224.conf` |
-| Volume keys | work (lipstick + PulseAudio mainvolume) | |
-| Hardware keyboard | German QWERTZ, Fn legends on AltGr (level 3) | `sparse/usr/share/X11/xkb/symbols/fxtec_vndr/pro1x`, DT patch |
-| Keyboard slide, backlight | mce drives both; DT reports the slide the way mce reads it | `sparse/etc/mce/`, `sfos-dt.patch` in the flake |
-| Bluetooth | works when enabled from boot; dead after a power-down (kernel) | |
-| Modem | ofono 2.12 (qrtrqmi) from the PinePhone repo: SIM, LTE registration, voice/SMS interfaces present. Data open (APN provisioning duplicates, MUX bind) | `sparse/usr/bin/droid/qx1050-modem-prep.sh`, `sparse/var/lib/environment/ofono/` |
-| Camera | libcamera 0.4 (native-common) captures from both sensors; jolla-camera on `libcamerasrc` with Qt's own viewfinder renderer (hybris video texture backend removed) crashed in the camerabin plugin (`supportedResolutions`, null size from libcamerasrc's template caps, confirmed by core dump) → patched qtmultimedia (`patches/qtmultimedia/`). Front/back switch needs the libcamera device enumeration (research note); libcamerasrc 0.4 asserts on stop (known next blocker) | `sparse/var/lib/environment/nemo/70-qx1050-camera.conf`, `71-qx1050-camera.rules`, `qx1050-camera-probe.service` (opt-in), `notes/research/research-camera-switching.md` |
-| Sensors | none yet: SM6115 sensors live on the ADSP (SSC); needs hexagonrpcd + libssc and a sensorfw adaptor to be written (design in `notes/sensors-design.md`; buildable with the mb2 engine below) | `notes/research/research-sensors-camera.md` |
-| SD card | not detected (kernel/DT) | |
-| Lock code | impossible without an encrypted home | |
-| Performance | UI stutters on transitions and lists; Benchymark: CPU ≈ hybris, memory 59 %, GPU 15–80 % of hybris | log |
 
 ## Layout
 
@@ -126,8 +110,8 @@ quota netlink, netfilter legacy, IPsec, PPP/L2TP, BT RFCOMM/BNEP; generated by
   amplifiers are powered. Re-creating the card after one PCM stream has run on the first
   instance makes it play (the service plays one second of digital silence, then reloads
   `snd_soc_sm8250`). A config bisect pointed at unrelated options, i.e. ordering decides. The
-  kernel-side race is open. `qx1050-audio-selftest.service` is a bring-up unit that logs
-  PLAYS/SILENT after each boot; remove it from a release.
+  kernel-side race is open. `qx1050-audio-selftest.service` (a bring-up unit that logs
+  PLAYS/SILENT) is no longer enabled; start it by hand.
 - **Slide switch inverted in the DT** (`sfos-dt.patch`): mce reads `SW_KEYPAD_SLIDE` as 1 =
   closed (N900 convention) and has no option to invert; the kernel's hall switch follows
   `input-event-codes.h` (1 = slid out). The inversion lives only in the SailfishOS kernel.
