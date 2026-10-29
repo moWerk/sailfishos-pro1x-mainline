@@ -71,9 +71,21 @@ Three causes, found one after another with the author holding the phone:
 Also: the VoiceMMode1 mixers are now switched by the helper right before the voice session
 opens and off when it ends (the UCM verb no longer sets them).
 
+Route switches (0.1-7): every new sink (earpiece/speaker) stalls the back ends again. During
+a call the running voice session holds them open, so a restart of the sink alone does not
+help (tried in 0.1-7's first draft: three restarts, still stalled, silence after the switch);
+the helper takes the voice route off, restarts sink and source, and routes again. A switch
+takes about 2 s, half of it PulseAudio's own profile switch (was 5-6 s with whole-second
+waits). Speaker calls work.
+
+Bluetooth in calls (2026-10-29): not working. The earbuds offer HFP (`handsfree_head_unit`)
+in PulseAudio, but nothing switches them from A2DP during a call, and the call audio would
+not reach PulseAudio anyway: it runs in the DSP straight to the codec. Needs a bridge from
+the DSP voice session to PulseAudio and the SCO link (the q6 in-call record and in-call
+music ports are the candidates).
+
 Still open: an echo canceller (the voice session runs without TX topology, `TOPOLOGY_ID_NONE`;
-at the earlier, much louder level the earpiece fed back into the mic), speaker and headset in
-calls, and why the policy once switched a call to the speaker by itself.
+at the earlier, much louder level the earpiece fed back into the mic), wired headset in calls, and why the policy once switched a call to the speaker by itself.
 
 Test helpers on the phone: a stream into the call sink is routed to the null sink by the audio
 policy unless it carries `pro1x.voice=keepalive`, and a recording without that property in

@@ -24,6 +24,7 @@ run) ;;
 esac
 
 echo $$ >"$pidfile"
+exec > >(while IFS= read -r l; do echo "$(cut -d' ' -f1 /proc/uptime) $l"; done) 2>&1
 kp=""
 cur=""
 vp=""
@@ -53,21 +54,23 @@ stop_keepers() {
 
 # The first start of the codec DMA back ends after the switch to this verb stalls: the
 # playback pointer (hw:0,0) stays at 0, and the capture side runs but delivers only
-# zeros. A suspend and resume of the sink and the source starts them again. The capture
-# stall does not show in its pointer, so the source is always restarted once. Root
-# cause unknown (2026-10-29).
+# zeros. It happens again on every new sink (earpiece/speaker switch). A suspend and
+# resume of the sink and the source starts them again; both are restarted at once,
+# since the capture stall does not show in its pointer. Root cause unknown (2026-10-29).
 hw_ptr() { awk '/hw_ptr/ { print $3 }' /proc/asound/card0/pcm0p/sub0/status 2>/dev/null; }
 kick_if_stalled() {
   local a b
-  if [ -n "$src" ]; then
-    pactl suspend-source "$src" 1; sleep 0.5; pactl suspend-source "$src" 0
-    echo "restarted $src"
-  fi
+  # both stall every time so far: restart both at once, then check the playback side
+  [ -z "$src" ] || pactl suspend-source "$src" 1
+  pactl suspend-sink "$sink" 1
+  [ -z "$src" ] || pactl suspend-source "$src" 0
+  pactl suspend-sink "$sink" 0
+  echo "restarted $sink / $src"
   for try in 1 2 3; do
-    a=$(hw_ptr); sleep 0.5; b=$(hw_ptr)
+    a=$(hw_ptr); sleep 0.3; b=$(hw_ptr)
     [ -n "$a" ] && [ "$a" != "$b" ] && return 0
     echo "playback stalled (hw_ptr $a), restarting $sink"
-    pactl suspend-sink "$sink" 1; sleep 0.5; pactl suspend-sink "$sink" 0; sleep 1
+    pactl suspend-sink "$sink" 1; sleep 0.2; pactl suspend-sink "$sink" 0; sleep 0.5
   done
   echo "playback still stalled"
 }
@@ -105,9 +108,9 @@ follow_volume() {
   echo "call volume $v % -> RX digital $gain"
 }
 
-# Route the DSP voice session to the codec DMA ends. Only while the keep-alive streams
-# run: switched on before the back ends start, the route stalls them (MultiMedia1
-# playback pointer stuck at 0, silence both ways).
+# Route the DSP voice session to the codec DMA ends while it runs. It does not cause
+# the back end stall, but while it is on, the session keeps the stalled back ends from
+# restarting.
 voice_route() {
   amixer -q -c0 cset name='RX_CODEC_DMA_RX_0 Voice Mixer VoiceMMode1' "$1"
   amixer -q -c0 cset name='VoiceMMode1 Capture Mixer VA_CODEC_DMA_TX_0' "$1"
@@ -162,13 +165,15 @@ fi
 
 while :; do
   if ! alive; then
-    # a new sink (route change) starts the back end again: route off until it runs
+    # a new sink (earpiece/speaker switch): the back ends start again and stall again.
+    # During a call the voice session holds them open, so a restart of the sink alone
+    # does not restart them: take the voice route off, restart, route again.
     voice_route 0
     stop_keepers
-    sleep 1
     if start_keepers; then
-      sleep 1
+      sleep 0.3
       kick_if_stalled
+      follow_volume
       [ -z "$vp" ] || voice_route 1
     fi
   fi
@@ -203,5 +208,5 @@ while :; do
     # no PCM to open (q6voice missing): nothing more to do in the always mode
     [ "$always" = 1 ] && exit 1
   fi
-  sleep 1
+  sleep 0.5
 done
