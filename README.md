@@ -46,7 +46,8 @@ Android logo is ours: instead of the scrolling kernel console the phone shows a 
 image until the SailfishOS UI takes over.
 
 1. Draw a 1080x2160 image (portrait; for a landscape design rotate it 90° before export).
-   The default is `initramfs/splash/sailfish-pro1-portrait.png`.
+   The default is `initramfs/splash/horizon-sailfish-portrait-memeline-73.png` (GIMP source:
+   the `.xcf` next to it).
 2. Build the initramfs: `scripts/build-initramfs.sh busybox` takes the default image,
    `SPLASH=my.png` another one (PNG, BMP or PPM; converted with ImageMagick), `SPLASH=`
    none.
