@@ -34,6 +34,7 @@ start_keepers() {
   sink=$(pick sinks 'Voice_Call')
   src=$(pick sources 'Voice_Call')
   cur="$sink $src"
+  vol_now="" # a new sink comes with the UCM device gains: apply the call volume again
   [ -n "$sink" ] || return 1
   echo "keep-alive on $sink / $src"
   # SailfishOS has no paplay/parec (pulseaudio-utils would conflict with the port's pulseaudio)
@@ -48,6 +49,68 @@ start_keepers() {
 stop_keepers() {
   [ -z "$kp" ] || kill $kp 2>/dev/null
   kp=""
+}
+
+# The first start of the codec DMA back ends after the switch to this verb stalls: the
+# playback pointer (hw:0,0) stays at 0, and the capture side runs but delivers only
+# zeros. A suspend and resume of the sink and the source starts them again. The capture
+# stall does not show in its pointer, so the source is always restarted once. Root
+# cause unknown (2026-10-29).
+hw_ptr() { awk '/hw_ptr/ { print $3 }' /proc/asound/card0/pcm0p/sub0/status 2>/dev/null; }
+kick_if_stalled() {
+  local a b
+  if [ -n "$src" ]; then
+    pactl suspend-source "$src" 1; sleep 0.5; pactl suspend-source "$src" 0
+    echo "restarted $src"
+  fi
+  for try in 1 2 3; do
+    a=$(hw_ptr); sleep 0.5; b=$(hw_ptr)
+    [ -n "$a" ] && [ "$a" != "$b" ] && return 0
+    echo "playback stalled (hw_ptr $a), restarting $sink"
+    pactl suspend-sink "$sink" 1; sleep 0.5; pactl suspend-sink "$sink" 0; sleep 1
+  done
+  echo "playback still stalled"
+}
+
+# Call audio runs in the DSP and never passes the PulseAudio sink, so its volume does
+# nothing. The codec's RX digital gain does: follow the sink volume times the call
+# volume (the volume keys move module-meego-mainvolume's virtual stream) there. 68 (-16 dB) at 100 % is loud but bearable at the ear; the
+# earpiece output gains (EAR_PA, HPHL) made no audible difference.
+CALL_GAIN_MAX=68
+vol_now=""
+si_now=""
+log_input_volumes() { # which volume the keys move during a call is not known yet: log
+  local s
+  s=$(pactl list sink-inputs | awk '/^Sink Input #/ { id = $3 } /^[ \t]*Volume:/ { printf "%s=%s ", id, $5 }')
+  [ "$s" = "$si_now" ] || echo "sink inputs: $s"
+  si_now=$s
+}
+follow_volume() {
+  local sv iv v gain
+  sv=$(pactl get-sink-volume "$sink" 2>/dev/null | awk 'NR == 1 { gsub(/%/, "", $5); print $5 }')
+  [ -n "$sv" ] || return
+  # the volume keys move module-meego-mainvolume's virtual call stream, not the sink
+  iv=$(pactl list sink-inputs | awk '
+    /^Sink Input #/ { mv = 0 }
+    /Driver: module-meego-mainvolume/ { mv = 1 }
+    mv && /^[ \t]*Volume:/ { gsub(/%/, "", $5); print $5; exit }')
+  v=$(awk -v a="$sv" -v b="${iv:-100}" 'BEGIN { printf "%d", a * b / 100 }')
+  [ "$v" = "$vol_now" ] && return
+  vol_now=$v
+  gain=$(awk -v p="$v" -v m="$CALL_GAIN_MAX" 'BEGIN {
+    g = (p > 0) ? m + 20 * log(p / 100) / log(10) : 0; if (g < 24) g = 24; if (g > m) g = m
+    printf "%d", g + 0.5 }')
+  amixer -q -c0 cset name='RX_RX0 Digital Volume' "$gain"
+  amixer -q -c0 cset name='RX_RX1 Digital Volume' "$gain"
+  echo "call volume $v % -> RX digital $gain"
+}
+
+# Route the DSP voice session to the codec DMA ends. Only while the keep-alive streams
+# run: switched on before the back ends start, the route stalls them (MultiMedia1
+# playback pointer stuck at 0, silence both ways).
+voice_route() {
+  amixer -q -c0 cset name='RX_CODEC_DMA_RX_0 Voice Mixer VoiceMMode1' "$1"
+  amixer -q -c0 cset name='VoiceMMode1 Capture Mixer VA_CODEC_DMA_TX_0' "$1"
 }
 
 alive() {
@@ -74,6 +137,7 @@ calls() { # object paths of the connected calls, on one line (SailfishOS: ofono)
 }
 
 start_pcm() {
+  voice_route 1
   pro1x-voicepcm &
   vp="$!"
   echo "voice session started"
@@ -86,6 +150,7 @@ stop_pcm() {
     echo "voice session stopped"
   fi
   vp=""
+  voice_route 0
 }
 
 trap 'stop_keepers; stop_pcm; rm -f "$pidfile"; exit 0' TERM INT
@@ -97,9 +162,15 @@ fi
 
 while :; do
   if ! alive; then
+    # a new sink (route change) starts the back end again: route off until it runs
+    voice_route 0
     stop_keepers
     sleep 1
-    start_keepers || true
+    if start_keepers; then
+      sleep 1
+      kick_if_stalled
+      [ -z "$vp" ] || voice_route 1
+    fi
   fi
 
   if [ "$always" = 1 ]; then
@@ -119,6 +190,11 @@ while :; do
     stop_pcm # the last call ended
   fi
   sig=$now
+
+  if [ -n "$sink" ]; then
+    follow_volume
+    [ -z "$vp" ] || log_input_volumes
+  fi
 
   if [ -n "$vp" ] && ! kill -0 "$vp" 2>/dev/null; then
     wait "$vp" 2>/dev/null

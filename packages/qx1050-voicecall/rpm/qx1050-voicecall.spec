@@ -1,12 +1,13 @@
 Name:       qx1050-voicecall
 Summary:    F(x)tec Pro1-X call audio: q6voice session helper for the Voice Call UCM verb
 Version:    0.1
-Release:    5
+Release:    6
 License:    MIT
 URL:        https://github.com/moWerk
 Source0:    %{name}-%{version}.tar.gz
 BuildRequires: alsa-lib-devel
 Requires:   bash
+Requires:   alsa-utils
 Requires:   gstreamer1.0-tools
 Requires:   gstreamer1.0-plugins-good
 

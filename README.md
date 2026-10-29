@@ -12,7 +12,7 @@ October 2026. It is meant to be read and rewritten by someone with porting and u
 experience, not merged as is. Every decision that was taken is written down here or in
 `notes/`; where something was guessed, the file says so.
 
-## State (2026-10-28)
+## State (2026-10-29)
 
 | Area | State | Where |
 |---|---|---|
@@ -20,7 +20,7 @@ experience, not merged as is. Every decision that was taken is written down here
 | Kernel | own 7.3.0-qx1050: v7.3 + 23 patches (`kernel/patches-7.3/`, what each is and its upstream status in `kernel/HANDOVER.md`) | `kernel/` |
 | Mobile data | works, toggle in Settings works: ofono patch 0020 (DPM open port, QMAPv4 with DL aggregation, bind without client type), rmnet links with MAPv4 checksum offload | `patches/ofono/`, `sparse/usr/bin/droid/qx1050-modem-prep.sh` |
 | Calls, SMS | calls connect both ways, ringtone plays, SMS; Settings > SIM cards (`jolla-settings-networking-multisim`) | |
-| Call audio | **not working**: silent both ways. The q6voice session (VoiceMMode1) starts without errors and the codec routes are set; nothing passes. A policy loop that switched the card profile five times a second during calls is fixed (`xpolicy.conf` disable_notify) | `packages/qx1050-voicecall/README.md` |
+| Call audio | **works** both ways on the earpiece, volume keys set the call volume (2026-10-29). The codec DMA back ends stall on their first start in the call profile; the helper restarts them. Speaker and headset in calls and an echo canceller still open | `packages/qx1050-voicecall/README.md` |
 | Sensors | **working** from boot: accelerometer, magnetometer/compass, light, proximity (gyroscope adaptor built, untested) through the ADSP Sensor Core (hexagonrpcd + libssc + our sensorfw adaptors). Auto-rotation, tilt in apps, auto brightness, proximity in mce. libssc patched so a missing sensor service no longer blocks sensorfwd (lipstick 25 s -> 7 s) | `packages/sensorfw-qt5-ssc/`, `notes/sensors-design.md` |
 | Charge limit | Settings > Battery charge limit: mce switches the PMI632 charge enable through a new `charging_enabled` attribute (kernel patch 0017); stops at the set limit | `sparse/etc/mce/92-qx1050-charging.ini` |
 | Display | panel turns off with a clean fade: the panel driver now sends display off while video still runs (kernel patch 0023); before, every blank ended in one corrupted full-brightness frame. Double-tap to wake works | |

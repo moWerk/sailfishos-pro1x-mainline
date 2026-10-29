@@ -46,3 +46,35 @@ Speaker)" stops it. Kernel side effect seen on the switch: wcd937x_codec_enable_
 - Open: whether call audio was ever heard on this phone with a mainline kernel; a NixOS
   baseline (kernel 7.1, ModemManager) is being set up. The modem logs a watchdog crash
   ("DOG detects stalled initialization") about 40 s after boot and restarts.
+
+## Call audio works (2026-10-29, 0.1-6)
+
+Calls carry audio both ways on the earpiece, and the volume keys set the call volume.
+Three causes, found one after another with the author holding the phone:
+
+- **Stalled codec DMA back ends.** After the switch to the "Voice Call" verb the first
+  start of the back ends stalls: the MultiMedia1 playback pointer (`hw:0,0`, see
+  `/proc/asound/card0/pcm0p/sub0/status`) stays at 0, and the capture side runs but
+  delivers only zeros. The DSP voice session uses the same back ends, so the call was silent
+  both ways. A suspend and resume of the sink and the source starts them again; the helper
+  does that once after starting the keep-alive streams (the capture stall does not show in
+  its pointer, so the source is always restarted). Reproducible without a call by switching
+  the card profile by hand. Root cause unknown.
+- **Earpiece far too loud.** Call audio runs in the DSP and never passes a PulseAudio stream.
+  Of the codec gains only the RX macro's digital volume (`RX_RX0/RX1 Digital Volume`) made
+  an audible difference on the earpiece in an ear test; `EAR_PA Volume` and `HPHL Volume`
+  did not. The call verb sets it to 68 (-16 dB) and restores 84 on leaving.
+- **Volume keys.** They move module-meego-mainvolume's virtual call stream, not the sink. The
+  helper follows sink volume times that stream's volume and maps it onto the digital gain:
+  68 + 20·log10(volume), at least 24 (10 % -> 48, 58 % -> 63, 100 % -> 68).
+
+Also: the VoiceMMode1 mixers are now switched by the helper right before the voice session
+opens and off when it ends (the UCM verb no longer sets them).
+
+Still open: an echo canceller (the voice session runs without TX topology, `TOPOLOGY_ID_NONE`;
+at the earlier, much louder level the earpiece fed back into the mic), speaker and headset in
+calls, and why the policy once switched a call to the speaker by itself.
+
+Test helpers on the phone: a stream into the call sink is routed to the null sink by the audio
+policy unless it carries `pro1x.voice=keepalive`, and a recording without that property in
+the "Voice Call" profile crashes PulseAudio (`pa_channels_valid` assertion).
