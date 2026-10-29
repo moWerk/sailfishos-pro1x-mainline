@@ -1,0 +1,13 @@
+[Unit]
+Description=Mark the running A/B slot as successfully booted (ABL retry counter)
+# SailfishOS boots straight from the Android bootloader. A slot that is never marked
+# successful runs out of retries and ABL stops booting it.
+After=multi-user.target
+ConditionPathExists=/dev/bsg
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/qbootctl -m
+
+[Install]
+WantedBy=multi-user.target

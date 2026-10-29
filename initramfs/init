@@ -2,9 +2,11 @@
 # SailfishOS on mainline, Pro1-X: minimal initramfs.
 # The SFOS root is a directory on the NixOS ext4 (userdata, label "nixos"):
 #   /sfos/rootfs  -> bind-mounted as the new root.
-# One-shot boot: if /boot/extlinux/extlinux.nixos.conf exists, it is moved back to
-# extlinux.conf before SFOS starts, so the next (re)boot is NixOS again.
-# Any failure reboots, which then lands in NixOS.
+# Booted straight from ABL (boot_a), or once from U-Boot's menu (dual boot): in that
+# case /boot/extlinux/extlinux.nixos.conf exists and is moved back to extlinux.conf
+# before SFOS starts, so the next (re)boot is NixOS again.
+# Any failure powers off: a reboot would come straight back here. Volume Down while
+# powering on gives fastboot.
 /bin/busybox --install -s /bin
 export PATH=/bin
 mkdir -p /proc /sys /dev /data /newroot
@@ -13,7 +15,7 @@ mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
 
 log() { echo "sfos-initramfs: $*" > /dev/kmsg; }
-fail() { log "FAILED: $*, rebooting in 10 s"; sleep 10; reboot -f; }
+fail() { log "FAILED: $*, powering off in 10 s"; sleep 10; poweroff -f; }
 
 dev=
 i=0

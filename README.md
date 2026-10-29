@@ -31,14 +31,14 @@ experience, not merged as is. Every decision that was taken is written down here
 | Settings | hardware feature list (`hw-settings.ini`) declared, which gates sensors, the battery indicator and several Settings items; orientation lock, rotating home screen, sideloading pages | `sparse/usr/share/csd/settings.d/hw-settings.ini` |
 | SD card | detected, shown in Settings > Storage | |
 | USB | usb-moded on configfs: plug notification, charging only, developer mode (192.168.2.15), MTP file transfer | `sparse/etc/usb-moded/`, `sparse/usr/bin/droid/qx1050-usb-gadget.sh` |
-| Boot | user session at 14 s (no longer waits for the modem or Wi-Fi), lipstick ready at about 22 s | `notes/`, `sparse/etc/systemd/system/qx1050-modem-prep.service` |
+| Boot | straight from the Android bootloader: SailfishOS boot image in `boot_a`, no second bootloader (2026-10-29); the slot is marked successful after every boot (qbootctl). User session at 14 s, lipstick ready at about 22 s. Dual boot with NixOS through U-Boot stays possible | `notes/boot.md`, `scripts/build-bootimg.sh` |
 | Alarm | **power-off alarm works**: the phone switches itself on at a Clock alarm and rings (dsme programs the PMIC RTC relative to its own clock; Linux cannot set that RTC, TrustZone) | |
 | Modem | intermittent watchdog crash shortly after boot (about every second boot, recovers by itself after 40 s): Wi-Fi, data and SIM then come up about a minute late. Unsolved | `notes/modem-dog-crash.md` |
-| Still tied to NixOS | boot (U-Boot menu and one-shot entry on the NixOS partition), firmware set, initramfs build | `kernel/README.md` |
+| Still tied to NixOS | the rootfs is a directory on the NixOS-formatted userdata partition (next: SailfishOS LVM layout, which home encryption needs), firmware set from the Nix package | `notes/boot.md` |
 
 Getting it running is not yet a download-and-flash affair: the rootfs is built with
 `scripts/stage1-base.sh` and `stage2-device.sh`, the kernel with `kernel/build-kernel.sh`,
-and it boots next to nyymi609's NixOS port. Read `notes/` before trying.
+and its rootfs still lives on the partition of nyymi609's NixOS port. Read `notes/` before trying.
 
 The table below is the state of 2026-10-24 and is kept for the detail it carries.
 

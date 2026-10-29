@@ -33,9 +33,10 @@ On the e15: `~/sailfish-build/qx1050-kernel/{linux,cfg,out-*}`, run with
 `BUILD_SLICE=build.slice`. Output = the layout `scripts/sfos-kernel-install.sh` takes
 (the install scripts read the modules version from modules.tar since 2026-10-26).
 
-## Still tied to NixOS (next steps to leave it)
+## Boot and install (2026-10-29)
 
-- Boot: U-Boot menu and `/boot/sfos` live on the NixOS partition; the one-shot arming writes
-  there. Needs an SFOS-owned boot partition/extlinux and the initramfs built outside Nix.
-- Firmware in the SFOS rootfs came from the Nix `pro1x-firmware` package (stage2).
-- Install path: `sfos-kernel-install.sh` still writes into `/mnt/nixos/boot/sfos`.
+The phone boots the SailfishOS boot image from `boot_a` (ABL, no U-Boot): see
+`notes/boot.md`. `sfos-kernel-install.sh` still writes the dual-boot layout into
+`/mnt/nixos/boot/sfos`; for the ABL boot, build the image with `scripts/build-bootimg.sh`
+and flash `boot_a`. Firmware in the SFOS rootfs came from the Nix `pro1x-firmware` package
+(stage2).
