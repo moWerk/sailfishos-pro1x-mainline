@@ -10,4 +10,4 @@ zypper --root $R -n --cache-dir /port/cache in --no-recommends \
   jolla-settings-networking-multisim jolla-settings-system-orientation jolla-settings-system-sideloading \
   mesa-dri-drivers mesa-libEGL mesa-libGLESv2 mesa-libgbm wayland-egl qt5-plugin-platform-eglfs \
   qt5-qtwayland-wayland_egl qtscenegraph-adaptation usb-moded mce-plugin-libhybris alsa-ucm-conf \
-  openssh-server jolla-developer-mode kmod vim-enhanced strace
+  openssh-server jolla-developer-mode kmod vim-enhanced strace zram

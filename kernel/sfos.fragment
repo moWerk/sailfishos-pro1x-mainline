@@ -58,3 +58,9 @@ CONFIG_BT_BNEP_MC_FILTER=y
 
 # Own kernel tree (port/kernel): name the release so it is never mistaken for the NixOS one
 CONFIG_LOCALVERSION="-qx1050"
+
+# zram swap (SailfishOS zram service; lz4 by default, zstd available)
+CONFIG_ZRAM=m
+CONFIG_ZRAM_BACKEND_LZ4=y
+CONFIG_ZRAM_BACKEND_ZSTD=y
+CONFIG_ZRAM_DEF_COMP_LZ4=y
