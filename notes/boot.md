@@ -64,5 +64,8 @@ msm DRM takes over the display from the firmware.
 - The rootfs is still a directory on the NixOS-formatted userdata partition. The SailfishOS
   convention is LVM on userdata (`sailfish/root`, `sailfish/home`); that layout is also what
   home encryption needs (LUKS on the home volume). Moving to it erases userdata.
-- Glitches between the Android logo and the splash; reboot and shutdown take 10-15 s.
+- Glitches between the Android logo and the splash.
+- Reboot: about 8 s of black screen. Traced 2026-10-29: systemd's shutdown takes 6.4 s with
+  no timeout or hanging unit (user session 3.8 s: apps, boosters, Telepathy, lipstick; then
+  mce, wpa_supplicant, connman, which needs about 1 s to exit), then the reset and firmware.
 - Firmware in the rootfs came from the Nix `pro1x-firmware` package.

@@ -45,9 +45,11 @@ zeros, then a BMP). Since this port boots its own kernel and initramfs, the scre
 Android logo is ours: instead of the scrolling kernel console the phone shows a full-screen
 image until the SailfishOS UI takes over.
 
-1. Draw a 1080x2160 image (portrait) and convert it to a binary PPM:
-   `magick splash.png -depth 8 ppm:splash.ppm` (or GIMP: Export As, `.ppm`, raw).
-2. Build the initramfs with it: `SPLASH=splash.ppm scripts/build-initramfs.sh busybox`.
+1. Draw a 1080x2160 image (portrait; for a landscape design rotate it 90° before export).
+   The default is `initramfs/splash/sailfish-pro1-portrait.png`.
+2. Build the initramfs: `scripts/build-initramfs.sh busybox` takes the default image,
+   `SPLASH=my.png` another one (PNG, BMP or PPM; converted with ImageMagick), `SPLASH=`
+   none.
    `initramfs/init` draws it on `/dev/fb0` with busybox `fbsplash` as its first step.
 3. Build the boot image with `scripts/build-bootimg.sh`: its default command line keeps the
    console off the screen (`console=ttyMSM0` only, `logo.nologo`,
@@ -173,7 +175,8 @@ nyymi609 (NixOS port, kernel patches, UCM, haptics driver), Adam Pigg / piggz (P
 and the native branch of droid-hal-configs, the PulseAudio build), Mister_Magister / Michał
 (freedreno config via the Moto X 2014 port, the Pro1 German layout push), Kabouik (hybris
 Pro1-X mce configs), TheKit/NotKit (xkeyboard-config-pro1), the sailfishos-native and
-sailfish-on-dontbeevil contributors, moWerk (author, device owner, every ground-truth test).
+sailfish-on-dontbeevil contributors, moWerk (author, device owner, every ground-truth test, the
+boot splash artwork). The splash background is a free stock photo by Archie Pryke on Pexels.
 
 See `notes/upstream.md` for what should go back to the projects above, and the port log
 (`~/sailfish/reports/pro1x-mainline-port-log.md` on the build host) for the day-by-day record.
