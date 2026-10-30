@@ -20,11 +20,34 @@ complaint about SailfishOS devices), so it is designed in from the start, not ad
   GPGSA, GPVTG, all without a fix), position reports (0x24), GNSS SV info (0x25) and three
   0x2d indications. Usage: `python3 qmi-loc-probe.py 0 68 180` (node and port from
   `qrtr-lookup`, they can change after a modem restart).
+- The NMEA types do not survive a modem restart: after the 2026-10-30 reboots they read
+  `none` again and a started session sent no NMEA at all until they were set. Whatever runs
+  the session (the bridge below) has to set them before every START.
 - SV info carried no satellite list after 3 minutes indoors (only TLV 0x01). That says
   nothing yet about the antenna: an unassisted cold start takes minutes under open sky.
 
 Next on the device: the same probe by a window and outside, cold and with assistance
 (below), timing the first satellites and the first fix.
+
+## Sky test 2026-10-30: mainline hears no satellites, hybris gets a fix
+
+Both Pro1-X side by side on the patio with open sky:
+
+- **Mainline (this port):** 50 min of a periodic session (`scripts/qmi-loc-log.py`), NMEA
+  types set, engine lock set to none after 45 min: not one satellite. No GSV sentence, SV
+  info indications every second with no satellite list, position reports 1 Hz with status
+  "in progress" and only a cell-based position (technology mask CELLID, uncertainty about
+  180 km). The modem is online, has valid UTC time and the session is accepted.
+- **Hybris (SFOS 5.0 halium, Android LOC HAL):** fix in Pure Maps within minutes at the
+  same spot, XTRA download failing (DNS), so unassisted apart from Wi-Fi AP injection.
+- So the hardware and the antenna can do it; something the Android side does is missing.
+  What its HAL does before START (logcat): SET_ENGINE_LOCK, REG_EVENTS, SET_OPERATION_MODE,
+  then START; the peripheral manager "votes" for the modem for GPS (the subsystem stays up,
+  which remoteproc does anyway); the GPS service is registered in the modem's root PD
+  (`msm/modem/root_pd/gps/gps_service`); Wi-Fi AP data injected every few seconds.
+- Next: read the hybris device tree (`/proc/device-tree`) and GPIO state for an AP-side
+  GNSS LNA supply or enable line that mainline's DT lacks; then repeat the HAL's exact
+  request sequence (operation mode, event mask) on mainline.
 
 ## What SailfishOS offers
 
