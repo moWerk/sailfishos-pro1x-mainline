@@ -1,0 +1,35 @@
+From: moWerk <mo@mowerk.net>
+Subject: [PATCH] sailfish_wifi: autoscan hold-off as a plain timer
+
+The autoscan hold-off only rate-limits scan requests while the system is
+awake, but it was armed as a wakeup timer. On a phone that suspends 5 s
+after each wakeup (mce autosleep) the 5 s hold-off expired just after the
+system had suspended again, iphb rounded the wakeup up to its 30 s grain,
+and the phone woke about a minute later; the expiry could start the next
+scan, which armed the next hold-off. Seen on the F(x)tec Pro1-X (mainline,
+SailfishOS 5.2) as a wakeup every 54-59 s from connmand in dsme's iphb
+log. A plain GLib timer does not run while the system sleeps.
+
+---
+diff --git a/connman/plugins/sailfish_wifi.c b/connman/plugins/sailfish_wifi.c
+index f3da326a..438e909c 100644
+--- a/connman/plugins/sailfish_wifi.c
++++ b/connman/plugins/sailfish_wifi.c
+@@ -2931,8 +2931,16 @@ static void wifi_device_autoscan_schedule_next(struct wifi_device *dev)
+ 	if (dev->autoscan_holdoff_timer_id) {
+ 		g_source_remove(dev->autoscan_holdoff_timer_id);
+ 	}
++	/*
++	 * A plain timer, not a wakeup timer: the hold-off only rate-limits
++	 * scans while the system is awake. As a wakeup timer it woke a
++	 * suspended phone about a minute later (the hold-off expired 5 s after
++	 * a wakeup, just after the system had suspended again, and iphb's 30 s
++	 * grain rounded the wakeup up), and the expiry could start the next
++	 * scan, which armed the next hold-off: a wakeup every minute.
++	 */
+ 	dev->autoscan_holdoff_timer_id =
+-		connman_wakeup_timer_add_seconds(WIFI_AUTOSCAN_MIN_SEC,
++		g_timeout_add_seconds(WIFI_AUTOSCAN_MIN_SEC,
+ 			wifi_device_autoscan_holdoff_timer_expired, dev);
+ 
+ 	/* Schedule the next scan */
