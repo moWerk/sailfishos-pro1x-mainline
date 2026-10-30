@@ -1,7 +1,7 @@
 # GNSS and AGPS
 
-Status 2026-10-30: **the modem's GNSS engine answers and streams, nothing feeds SailfishOS
-location yet.** AGPS is a first-class goal of this port (time to first fix was the oldest
+Status 2026-10-30 11:00: **the receiver hears satellites since the modem gets its MCFG files
+(below); no fix yet, nothing feeds SailfishOS location yet.** AGPS is a first-class goal of this port (time to first fix was the oldest
 complaint about SailfishOS devices), so it is designed in from the start, not added later.
 
 ## What is proven (on the device, headless, indoors)
@@ -49,12 +49,30 @@ Both Pro1-X side by side on the patio with open sky:
   GNSS LNA supply or enable line that mainline's DT lacks; then repeat the HAL's exact
   request sequence (operation mode, event mask) on mainline.
 
+## Cause found: the modem had no MCFG (2026-10-30)
+
+At every start the modem asks over QRTR TFTP for
+`/readonly/firmware/image/modem_pr/mcfg/configs/mcfg_hw/mbn_hw.dig` and `mcfg_sw/mbn_sw.dig`.
+tqftpserv looks for them next to modem.mbn and rejected both ("unable to open ..., reject"):
+the modem then runs on built-in defaults. Calls and data work that way; GNSS does not hear a
+single satellite. Android mounts the modem partition (`modem_a`, vfat) at
+`/vendor/firmware_mnt`; the port now does the same with `qx1050-modem-pr.service`, which
+mounts it read-only and binds `image/modem_pr` next to modem.mbn before tqftpserv starts.
+
+After a reboot with the files served, same patio: the first satellite after about 60 s, then one
+at a time (GPS 21 at 23-30 dB-Hz, later GPS 30 at 18-25), no fix in 12 min. Hybris got a fix at the
+same spot, so the signal level is the next question (all constellations enabled? the other
+Pro1-X's antenna?), together with assistance (XTRA, time, position).
+
 ## What SailfishOS offers
 
 - geoclue 0.12 (Jolla's) with providers; Jolla's own GPS provider is
   `geoclue-provider-hybris-binder` (Android location HAL, not usable on mainline).
 - In the jolla repository: `gpsd` 3.26.1 (+ clients, python3-gpsd), `geoclue-provider-mlsdb`
   (offline cell location database), `-gsmloc`, `-hostip`, `-manual`.
+- Without any provider the Settings page shows only the location switch: the accuracy modes
+  are visible when `locationProviders` is not empty. The port now installs
+  geoclue-provider-mlsdb (offline cell/Wi-Fi); the status bar GPS icon needs a GPS provider.
 - `geoclue-provider-gpsd3` is not in the configured repositories; nemo:devel:hw:native-common
   ships it (the PinePhone ports use it).
 

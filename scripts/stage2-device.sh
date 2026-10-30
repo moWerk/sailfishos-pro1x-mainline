@@ -51,6 +51,11 @@ rpm --root $R -Uvh --replacepkgs build/rpms/*.rpm
 # The top-menu flashlight toggle; its provider (sailfish-flashlight-provider) is the port's
 # sysfs-flashlight from build/rpms, so it can only come after them.
 zypper --root $R -n --cache-dir /port/cache in --no-recommends jolla-settings-system-flashlight
+# A geoclue provider: without one Settings shows only the bare location switch (the accuracy
+# modes need locationProviders) and apps get no position at all. mlsdb is offline cell and
+# Wi-Fi positioning; the GNSS provider for the modem's QMI LOC is still to come (notes/gnss.md).
+zypper --root $R -n --cache-dir /port/cache in --no-recommends geoclue-provider-mlsdb \
+  geoclue-provider-mlsdb-agreements
 chroot $R systemctl enable rmtfs.service tqftpserv.service
 chroot $R systemctl mask rmtfs-dir.service
 

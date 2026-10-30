@@ -1,0 +1,16 @@
+[Unit]
+Description=Modem configuration files (MCFG) for tqftpserv
+# At every start the modem asks for modem_pr/mcfg/... over QRTR TFTP. Without them it runs on
+# built-in defaults: calls and data work, but GNSS hears no satellites (sky test 2026-10-30,
+# notes/gnss.md). Android mounts the modem partition for this; so does this unit.
+DefaultDependencies=no
+After=local-fs.target
+Before=tqftpserv.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/droid/qx1050-modem-pr.sh
+
+[Install]
+WantedBy=multi-user.target
