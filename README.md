@@ -21,7 +21,7 @@ experience, not merged as is. Every decision that was taken is written down here
 | Mobile data | works, toggle in Settings works: ofono patch 0020 (DPM open port, QMAPv4 with DL aggregation, bind without client type), rmnet links with MAPv4 checksum offload | `patches/ofono/`, `sparse/usr/bin/droid/qx1050-modem-prep.sh` |
 | Calls, SMS | calls connect both ways, ringtone plays, SMS; Settings > SIM cards (`jolla-settings-networking-multisim`) | |
 | Call audio | **works** both ways on the earpiece and the speaker, switching between them takes about 2 s, volume keys set the call volume (2026-10-29). The codec DMA back ends stall on every start in the call profile; the helper restarts them. Bluetooth earbuds in calls, wired headset and an echo canceller still open | `packages/qx1050-voicecall/README.md` |
-| Sensors | **working** from boot: accelerometer, magnetometer/compass, light, proximity (gyroscope adaptor built, untested) through the ADSP Sensor Core (hexagonrpcd + libssc + our sensorfw adaptors). Auto-rotation, tilt in apps, auto brightness, proximity in mce. libssc patched so a missing sensor service no longer blocks sensorfwd (lipstick 25 s -> 7 s) | `packages/sensorfw-qt5-ssc/`, `notes/sensors-design.md` |
+| Sensors | **working** from boot: accelerometer, magnetometer/compass, light, proximity (gyroscope adaptor built, untested) and the step counter (the Sensor Core's pedometer: 181 steps counted for 170 walked; logged per day by sensorlogd, the AsteroidOS step logger by dodoradio) through the ADSP Sensor Core (hexagonrpcd + libssc + our sensorfw adaptors). Auto-rotation, tilt in apps, auto brightness, proximity in mce. libssc patched so a missing sensor service no longer blocks sensorfwd (lipstick 25 s -> 7 s) | `packages/sensorfw-qt5-ssc/`, `notes/sensors-design.md` |
 | Charging | Settings > Battery charge limit: mce switches the PMI632 charge enable through a new `charging_enabled` attribute (kernel patch 0017); stops at the set limit. Plug-in shows the charging notification with its sound, then the USB mode notification; unplug is silent (kernel patch 0025: plug changes reported at once, battery event before the charger's on unplug; usb-moded cable connection delay 500 ms) (2026-10-29). Low battery warning works. 5 V only, input limited to 1.5 A (no USB-PD fast charging yet) | `sparse/etc/mce/92-qx1050-charging.ini`, `sparse/var/lib/environment/usb-moded/` |
 | Display | panel turns off with a clean fade: the panel driver now sends display off while video still runs (kernel patch 0023); before, every blank ended in one corrupted full-brightness frame. Wake: the panel came out of sleep at its power-on brightness before the backlight was enabled (bright, dim, then the ramp); kernel patch 0030 sends the level before display on: one unclean ramp seen in about 12 wakes since, not reproducible | |
 | Double-tap to wake | **works**: double-tap the dark screen to wake it, as on Jolla's own devices (many community ports lack it). mce's doubletap module with the touchscreen driver's wakeup gesture | `sparse/etc/mce/` |
@@ -164,7 +164,10 @@ connection; find it by ssh host key.
 nyymi609 (NixOS port, kernel patches, UCM, haptics driver), Adam Pigg / piggz (PinePhone port
 and the native branch of droid-hal-configs, the PulseAudio build), Mister_Magister / Michał
 (freedreno config via the Moto X 2014 port, the Pro1 German layout push), Kabouik (hybris
-Pro1-X mce configs), TheKit/NotKit (xkeyboard-config-pro1), the sailfishos-native and
+Pro1-X mce configs), TheKit/NotKit (xkeyboard-config-pro1), Dylan Van Assche (libssc, the
+Sensor Core library every sensor here goes through), Arseniy Movshev / dodoradio (asteroid-sensorlogd,
+the step logger `packages/sensorlogd` ports, with its QML module), haltia-de (the Lenovo TB-J606L
+port's qrtr HELLO fix, kernel patch 0029), the sailfishos-native and
 sailfish-on-dontbeevil contributors, moWerk (author, device owner, every ground-truth test, the
 boot splash artwork). The splash background is a free stock photo by Archie Pryke on Pexels.
 

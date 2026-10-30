@@ -1,0 +1,458 @@
+Read steps from sensorfw and make the other sensors optional
+
+SailfishOS ships QtSensors 5.6: no QStepCounterSensor, no QHrmSensor. stepsource.h wraps
+the step count: QtSensors as before, or sensorfw's stepcountersensor through
+libsensorclient (SENSORLOGD_SENSORFW), with standby override so it counts while the display
+is off. The first-reading wait runs the event loop (sensorfw delivers it as a signal).
+SENSORLOGD_HEARTRATE and SENSORLOGD_BAROMETER build those loggers only where their sensors
+exist. SENSORLOGD_COUNTER_RESETS_ON_OPEN handles a counter that starts from 0 when opened
+(the Qualcomm Sensor Core) and one that starts over mid-run. Records carry their own time
+(currentSecsSinceEpoch() is static and Qt 5.8+). QML import dir configurable.
+
+diff --color -ruN '--exclude=.git' sl-orig/CMakeLists.txt /mnt/storage/sailfish/pro1x-mainline/port/packages/sensorlogd/upstream/CMakeLists.txt
+--- a/CMakeLists.txt	2026-04-22 00:45:50.000000000 +0200
++++ b/CMakeLists.txt	2026-10-30 12:28:01.050379812 +0100
+@@ -9,8 +9,26 @@
+ include(FeatureSummary)
+ include(GNUInstallDirs)
+ 
+-find_package(Qt5 COMPONENTS Core DBus Qml Sensors REQUIRED)
+-pkg_check_modules(mlite5 REQUIRED Mlite5)
++# AsteroidOS builds everything; SailfishOS has no heart rate sensor class in QtSensors 5.6 and
++# no step counter there either, so it reads steps from sensorfw (SENSORLOGD_SENSORFW).
++option(SENSORLOGD_HEARTRATE "Log the heart rate (QtSensors QHrmSensor)" ON)
++option(SENSORLOGD_BAROMETER "Log the barometer (QtSensors QPressureSensor, mlite5)" ON)
++option(SENSORLOGD_SENSORFW "Read the step counter from sensorfw instead of QtSensors" OFF)
++option(SENSORLOGD_COUNTER_RESETS_ON_OPEN "The step counter starts from 0 when opened, not at boot" OFF)
++set(INSTALL_QML_IMPORT_DIR "${CMAKE_INSTALL_LIBDIR}/qt5/qml" CACHE PATH "QML import directory")
++
++find_package(Qt5 COMPONENTS Core DBus Qml Quick Sensors REQUIRED)
++if(SENSORLOGD_BAROMETER)
++    pkg_check_modules(mlite5 REQUIRED mlite5)
++endif()
++if(SENSORLOGD_SENSORFW)
++    pkg_check_modules(sensord REQUIRED sensord-qt5)
++endif()
++foreach(opt SENSORLOGD_HEARTRATE SENSORLOGD_BAROMETER SENSORLOGD_SENSORFW SENSORLOGD_COUNTER_RESETS_ON_OPEN)
++    if(${opt})
++        add_definitions(-D${opt})
++    endif()
++endforeach()
+ 
+ add_subdirectory(daemon)
+ add_subdirectory(qmlplugin)
+diff --color -ruN '--exclude=.git' sl-orig/common.cpp /mnt/storage/sailfish/pro1x-mainline/port/packages/sensorlogd/upstream/common.cpp
+--- a/common.cpp	2026-04-22 00:45:50.000000000 +0200
++++ b/common.cpp	2026-10-30 12:28:48.351408707 +0100
+@@ -34,7 +34,9 @@
+     }
+     file.seek(file.size());
+     QTextStream out(&file);
+-    out << QString::number(recordTime.currentSecsSinceEpoch()) + ":" + logdata + "\n";
++    // recordTime, not now: currentSecsSinceEpoch() is static (and Qt 5.8+), so the end-of-day
++    // record of a date change got the current time
++    out << QString::number(recordTime.toMSecsSinceEpoch() / 1000) + ":" + logdata + "\n";
+     file.close();
+ }
+ 
+diff --color -ruN '--exclude=.git' sl-orig/daemon/CMakeLists.txt /mnt/storage/sailfish/pro1x-mainline/port/packages/sensorlogd/upstream/daemon/CMakeLists.txt
+--- a/daemon/CMakeLists.txt	2026-04-22 00:45:50.000000000 +0200
++++ b/daemon/CMakeLists.txt	2026-10-30 12:27:44.002404207 +0100
+@@ -1,26 +1,30 @@
+-add_executable(sensorlogd
++set(SOURCES
+     sensorlogd.cpp
+     logger.cpp
+     logger.h
+     sensorPlugins/stepCounter.cpp
+     sensorPlugins/stepCounter.h
+-    sensorPlugins/heartrateSensor.cpp
+-    sensorPlugins/heartrateSensor.h
+-    sensorPlugins/barometerSensor.cpp
+-    sensorPlugins/barometerSensor.h
+     ../common.cpp
+     ../common.h
++    ../stepsource.h
+ )
++if(SENSORLOGD_HEARTRATE)
++    list(APPEND SOURCES sensorPlugins/heartrateSensor.cpp sensorPlugins/heartrateSensor.h)
++endif()
++if(SENSORLOGD_BAROMETER)
++    list(APPEND SOURCES sensorPlugins/barometerSensor.cpp sensorPlugins/barometerSensor.h)
++endif()
++add_executable(sensorlogd ${SOURCES})
+ set_target_properties(sensorlogd PROPERTIES AUTOMOC ON)
+-#add_compile_definitions(Q_DECLARE_PRIVATE_SUPPORTS_UNIQUE_PTR=${Q_DECLARE_PRIVATE_SUPPORTS_UNIQUE_PTR})
+ target_link_libraries(sensorlogd PRIVATE
+     Qt5::Core
+     Qt5::DBus
+     Qt5::Qml
+     Qt5::Sensors
+     ${mlite5_LIBRARIES}
++    ${sensord_LIBRARIES}
+ )
+-target_include_directories(sensorlogd PRIVATE ${mlite5_INCLUDE_DIRS})
++target_include_directories(sensorlogd PRIVATE ${mlite5_INCLUDE_DIRS} ${sensord_INCLUDE_DIRS})
+ install(TARGETS sensorlogd DESTINATION bin)
+ install(FILES systemd/asteroid-sensorlogd.service
+ 		DESTINATION /usr/lib/systemd/user)
+diff --color -ruN '--exclude=.git' sl-orig/daemon/logger.cpp /mnt/storage/sailfish/pro1x-mainline/port/packages/sensorlogd/upstream/daemon/logger.cpp
+--- a/daemon/logger.cpp	2026-04-22 00:45:50.000000000 +0200
++++ b/daemon/logger.cpp	2026-10-30 12:27:30.081465023 +0100
+@@ -23,8 +23,6 @@
+ #include "../common.h"
+ 
+ #include "sensorPlugins/stepCounter.h"
+-#include "sensorPlugins/heartrateSensor.h"
+-#include "sensorPlugins/barometerSensor.h"
+ 
+ Logger::Logger(QObject *parent)  :
+     QObject(parent){
+@@ -43,9 +41,11 @@
+     barometerEnabled = this->settings->value("barometer/enabled",true).toBool();
+ 
+ //intialise HRM
++#ifdef SENSORLOGD_HEARTRATE
+     if (heartrateSensorEnabled) {
+         m_heartrateSensor = new HeartrateSensorPlugin(this,settings->value("heartrateSensor/interval",600000).toInt());
+     }
++#endif
+ 
+ //initialise step counter
+     if (stepCounterEnabled) {
+@@ -53,9 +53,11 @@
+     }
+ 
+ //initialise barometer
++#ifdef SENSORLOGD_BAROMETER
+     if (barometerEnabled) {
+         m_barometerSensor = new BarometerSensorPlugin(this,settings->value("barometer/interval",600000).toInt());
+     }
++#endif
+ 
+     if(!m_iface->isValid()) {
+ 	    qDebug() << "interface is not valid";
+@@ -78,31 +80,39 @@
+     qDebug() << "display on detected";
+     uint currTime = QDateTime::currentMSecsSinceEpoch();
+ 
++#ifdef SENSORLOGD_HEARTRATE
+     if (heartrateSensorEnabled) {
+         m_heartrateSensor->timeUpdate();
+     }
++#endif
+ 
+     if (stepCounterEnabled) {
+         m_stepCounter->timeUpdate();
+     }
+ 
++#ifdef SENSORLOGD_BAROMETER
+     if (barometerEnabled) {
+         m_barometerSensor->timeUpdate();
+     }
++#endif
+ }
+ 
+ void Logger::triggerRecording() {
++#ifdef SENSORLOGD_HEARTRATE
+     if (heartrateSensorEnabled) {
+         m_heartrateSensor->triggerRecording();
+     }
++#endif
+ 
+     if (stepCounterEnabled) {
+         m_stepCounter->triggerRecording();
+     }
+ 
++#ifdef SENSORLOGD_BAROMETER
+     if (barometerEnabled) {
+         m_barometerSensor->triggerRecording();
+     }
++#endif
+ }
+ 
+ bool Logger::getDaemonFresh() {
+diff --color -ruN '--exclude=.git' sl-orig/daemon/logger.h /mnt/storage/sailfish/pro1x-mainline/port/packages/sensorlogd/upstream/daemon/logger.h
+--- a/daemon/logger.h	2026-04-22 00:45:50.000000000 +0200
++++ b/daemon/logger.h	2026-10-30 12:27:30.081295937 +0100
+@@ -21,8 +21,12 @@
+ #include <QDBusAbstractAdaptor>
+ 
+ #include "sensorPlugins/stepCounter.h"
++#ifdef SENSORLOGD_HEARTRATE
+ #include "sensorPlugins/heartrateSensor.h"
++#endif
++#ifdef SENSORLOGD_BAROMETER
+ #include "sensorPlugins/barometerSensor.h"
++#endif
+ 
+ class Logger : public QObject
+ {
+@@ -40,11 +44,15 @@
+ private:
+     QDBusInterface *m_iface;
+     bool heartrateSensorEnabled = false;
++#ifdef SENSORLOGD_HEARTRATE
+     HeartrateSensorPlugin *m_heartrateSensor;
++#endif
+     bool stepCounterEnabled = false;
+     StepCounterPlugin *m_stepCounter;
+     bool barometerEnabled = false;
++#ifdef SENSORLOGD_BAROMETER
+     BarometerSensorPlugin *m_barometerSensor;
++#endif
+     bool daemonFresh;
+     QSettings *settings;
+     bool getDaemonFresh();
+diff --color -ruN '--exclude=.git' sl-orig/daemon/sensorPlugins/stepCounter.cpp /mnt/storage/sailfish/pro1x-mainline/port/packages/sensorlogd/upstream/daemon/sensorPlugins/stepCounter.cpp
+--- a/daemon/sensorPlugins/stepCounter.cpp	2026-04-22 00:45:50.000000000 +0200
++++ b/daemon/sensorPlugins/stepCounter.cpp	2026-10-30 12:26:56.036714896 +0100
+@@ -14,7 +14,8 @@
+ #include <QString>
+ #include <QTime>
+ #include <QTimer>
+-#include <QtSensors/QStepCounterSensor>
++#include <QCoreApplication>
++#include <QElapsedTimer>
+ #include <QSettings>
+ #include <time.h>
+ 
+@@ -28,7 +29,7 @@
+ {
+     interval = initInterval;
+ 
+-    stepcounterSensor = new QStepCounterSensor(this);
++    stepcounterSensor = new StepSource(this);
+     stepcounterSensor->start();
+ 
+     qDebug() << "step counter sensor is enabled. interval is (ms) " << interval;
+@@ -39,13 +40,23 @@
+     QDateTime currDateTime = QDateTime::currentDateTime();
+ 
+     setupFilePath(sensorPathPrefix);
+-    while (!stepcounterSensor->isActive()) { }
++    // Wait for the first reading. Spinning without the event loop works with QtSensors'
++    // synchronous start but never sees sensorfw's first sample, which arrives as a signal.
++    QElapsedTimer waited;
++    waited.start();
++    while (!stepcounterSensor->isActive() && waited.elapsed() < 10000)
++        QCoreApplication::processEvents(QEventLoop::AllEvents, 100);
++#ifdef SENSORLOGD_COUNTER_RESETS_ON_OPEN
++    // The Qualcomm Sensor Core counts from 0 whenever the counter is opened, not since boot:
++    // every daemon start continues from the last record, like the first start of a boot.
++    daemonFresh = true;
++#endif
+     m_settings = new QSettings("asteroid", "sensorlogd");
+ 
+     if (dayFileExists(sensorPathPrefix) && daemonFresh) {
+         QStringList lastLineData = fileGetPrevRecord(sensorPathPrefix);
+         lastRecordTime = QDateTime::currentDateTime();
+-        m_stepsOffset = stepcounterSensor->reading()->steps() - lastLineData[1].toInt(); // we reset the step count, ignoring all steps that may have been taken while the daemon isn't running. Devices which count steps independently will need custom code.
++        m_stepsOffset = stepcounterSensor->steps() - lastLineData[1].toInt(); // we reset the step count, ignoring all steps that may have been taken while the daemon isn't running. Devices which count steps independently will need custom code.
+     } else if (dayFileExists) {
+         lastRecordTime = QDateTime::currentDateTime();
+         m_stepsOffset = m_settings->value("StepCounterPrivate/stepsOffset", 0).toInt();
+@@ -68,7 +79,16 @@
+ void StepCounterPlugin::triggerRecording()
+ {
+     qDebug() << "stepcounter interval recording";
+-    int rawSteps = stepcounterSensor->reading()->steps();
++    int rawSteps = stepcounterSensor->steps();
++#ifdef SENSORLOGD_COUNTER_RESETS_ON_OPEN
++    if (rawSteps < m_lastRawSteps && dayFileExists(sensorPathPrefix)) {
++        // The counter started over (sensord restarted and reopened it): continue from the last record
++        m_stepsOffset = rawSteps - fileGetPrevRecord(sensorPathPrefix)[1].toInt();
++        m_settings->setValue("StepCounterPrivate/stepsOffset", m_stepsOffset);
++        qDebug() << "step counter restarted, offset is now" << m_stepsOffset;
++    }
++    m_lastRawSteps = rawSteps;
++#endif
+     if (lastRecordTime.date() != QDate::currentDate()) { // ok, so the date has changed.
+         if (dayFileExists(sensorPathPrefix)) { // this likely means we have just had a system time change
+             QStringList lastLineData = fileGetPrevRecord(sensorPathPrefix);
+diff --color -ruN '--exclude=.git' sl-orig/daemon/sensorPlugins/stepCounter.h /mnt/storage/sailfish/pro1x-mainline/port/packages/sensorlogd/upstream/daemon/sensorPlugins/stepCounter.h
+--- a/daemon/sensorPlugins/stepCounter.h	2026-04-22 00:45:50.000000000 +0200
++++ b/daemon/sensorPlugins/stepCounter.h	2026-10-30 12:26:56.035598734 +0100
+@@ -17,7 +17,7 @@
+ #include <QTimer>
+ #include <QSettings>
+ 
+-#include <QtSensors/QStepCounterSensor>
++#include "../../stepsource.h"
+ 
+ class StepCounterPlugin : public QObject {
+     Q_OBJECT
+@@ -34,7 +34,8 @@
+     QDateTime lastRecordTime;
+     int interval;
+     QTimer *recordIntervalTimer;
+-    QStepCounterSensor *stepcounterSensor;
++    StepSource *stepcounterSensor;
++    int m_lastRawSteps = 0;
+     int m_stepsOffset = 0;
+     QSettings *m_settings;
+ 
+diff --color -ruN '--exclude=.git' sl-orig/qmlplugin/CMakeLists.txt /mnt/storage/sailfish/pro1x-mainline/port/packages/sensorlogd/upstream/qmlplugin/CMakeLists.txt
+--- a/qmlplugin/CMakeLists.txt	2026-04-22 00:45:50.000000000 +0200
++++ b/qmlplugin/CMakeLists.txt	2026-10-30 12:27:44.014974024 +0100
+@@ -14,7 +14,10 @@
+     loggerSettings.h
+     ../common.cpp
+     ../common.h
++    ../stepsource.h
+ )
++set_target_properties(sensorlogdqmlplugin PROPERTIES AUTOMOC ON)
++target_include_directories(sensorlogdqmlplugin PRIVATE ${sensord_INCLUDE_DIRS})
+ 
+ target_link_libraries(
+     sensorlogdqmlplugin
+@@ -22,6 +25,7 @@
+     Qt5::Quick
+     Qt5::DBus
+     Qt5::Sensors
++    ${sensord_LIBRARIES}
+ )
+ 
+ install(TARGETS sensorlogdqmlplugin
+diff --color -ruN '--exclude=.git' sl-orig/qmlplugin/stepsDataLoader.cpp /mnt/storage/sailfish/pro1x-mainline/port/packages/sensorlogd/upstream/qmlplugin/stepsDataLoader.cpp
+--- a/qmlplugin/stepsDataLoader.cpp	2026-04-22 00:45:50.000000000 +0200
++++ b/qmlplugin/stepsDataLoader.cpp	2026-10-30 12:27:12.372669608 +0100
+@@ -17,16 +17,15 @@
+ #include <QPointF>
+ #include <QFileSystemWatcher>
+ 
+-#include <QtSensors/QStepCounterSensor>
+ 
+ #include "stepsDataLoader.h"
+ #include "../common.h"
+ 
+ StepsDataLoader::StepsDataLoader() : QObject()
+ {
+-    m_stepcounterSensor = new QStepCounterSensor(this);
++    m_stepcounterSensor = new StepSource(this);
+     m_stepcounterSensor->start();
+-    connect(m_stepcounterSensor,SIGNAL(readingChanged()),this,SIGNAL(todayTotalChanged()));
++    connect(m_stepcounterSensor,SIGNAL(stepsChanged()),this,SIGNAL(todayTotalChanged()));
+     m_iface = new QDBusInterface("org.asteroid.sensorlogd.logger","/org/asteroid/sensorlogd/logger","", QDBusConnection::sessionBus(), this);
+     if (!m_iface->isValid()) {
+         qDebug()<<"interface is not valid";
+@@ -41,7 +40,7 @@
+ 
+ int StepsDataLoader::getTodayTotal() {
+     QSettings settings("asteroid", "sensorlogd");
+-    int steps =  m_stepcounterSensor->reading()->steps();
++    int steps =  m_stepcounterSensor->steps();
+     if (steps < 1) {
+         return getTotalForDate(QDate::currentDate());
+     }
+diff --color -ruN '--exclude=.git' sl-orig/qmlplugin/stepsDataLoader.h /mnt/storage/sailfish/pro1x-mainline/port/packages/sensorlogd/upstream/qmlplugin/stepsDataLoader.h
+--- a/qmlplugin/stepsDataLoader.h	2026-04-22 00:45:50.000000000 +0200
++++ b/qmlplugin/stepsDataLoader.h	2026-10-30 12:27:12.372009913 +0100
+@@ -16,7 +16,7 @@
+ #include <QPointF>
+ #include <QFileSystemWatcher>
+ 
+-#include <QtSensors/QStepCounterSensor>
++#include "../stepsource.h"
+ 
+ class StepsDataLoader : public QObject
+ {
+@@ -38,7 +38,7 @@
+ private:
+     QDBusInterface *m_iface;
+     QFileSystemWatcher *m_fileWatcher;
+-    QStepCounterSensor *m_stepcounterSensor;
++    StepSource *m_stepcounterSensor;
+ };
+ 
+ #endif // STEPSDATALOADER_H
+diff --color -ruN '--exclude=.git' sl-orig/stepsource.h /mnt/storage/sailfish/pro1x-mainline/port/packages/sensorlogd/upstream/stepsource.h
+--- a/stepsource.h	1970-01-01 01:00:00.000000000 +0100
++++ b/stepsource.h	2026-10-30 12:27:12.371687349 +0100
+@@ -0,0 +1,86 @@
++/*
++ * Copyright (C) 2026 moWerk <mo@mowerk.net>
++ * This file is part of sensorlogd, a sensor logger for the AsteroidOS smartwatch OS.
++ *
++ * sensorlogd is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
++ * sensorlogd is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
++ */
++
++#ifndef STEPSOURCE_H
++#define STEPSOURCE_H
++
++/*
++ * The step count source. AsteroidOS reads QtSensors' QStepCounterSensor; SailfishOS ships
++ * QtSensors 5.6, which has no step counter, so there the count comes from sensorfw's
++ * stepcountersensor through its client library (SENSORLOGD_SENSORFW).
++ */
++
++#include <QObject>
++
++#ifdef SENSORLOGD_SENSORFW
++#include <sensormanagerinterface.h>
++#include <stepcountersensor_i.h>
++
++class StepSource : public QObject
++{
++    Q_OBJECT
++public:
++    explicit StepSource(QObject *parent = nullptr) : QObject(parent)
++    {
++        SensorManagerInterface &sm = SensorManagerInterface::instance();
++        if (!sm.loadPlugin("stepcountersensor"))
++            qWarning() << "sensorfw has no stepcountersensor";
++        sm.registerSensorInterface<StepCounterSensorChannelInterface>("stepcountersensor");
++        m_iface = StepCounterSensorChannelInterface::interface("stepcountersensor");
++        if (!m_iface) {
++            qWarning() << "cannot open sensorfw's stepcountersensor";
++            return;
++        }
++        connect(m_iface, &StepCounterSensorChannelInterface::StepCounterChanged,
++                this, [this](const Unsigned &value) { m_steps = value.x(); m_active = true; emit stepsChanged(); });
++    }
++    /* standbyOverride: keep counting while the display is off, which is the point of a logger */
++    void start()
++    {
++        if (!m_iface)
++            return;
++        m_iface->setStandbyOverride(true);
++        m_iface->start();
++    }
++    bool isActive() const { return m_active; }
++    int steps() const { return m_steps; }
++
++signals:
++    void stepsChanged();
++
++private:
++    StepCounterSensorChannelInterface *m_iface = nullptr;
++    int m_steps = 0;
++    bool m_active = false;
++};
++#else
++#include <QtSensors/QStepCounterSensor>
++
++class StepSource : public QObject
++{
++    Q_OBJECT
++public:
++    explicit StepSource(QObject *parent = nullptr) : QObject(parent), m_sensor(new QStepCounterSensor(this))
++    {
++        connect(m_sensor, &QStepCounterSensor::readingChanged, this, &StepSource::stepsChanged);
++    }
++    void start() { m_sensor->start(); }
++    bool isActive() const { return m_sensor->isActive(); }
++    int steps() const { return m_sensor->reading() ? m_sensor->reading()->steps() : 0; }
++
++signals:
++    void stepsChanged();
++
++private:
++    QStepCounterSensor *m_sensor;
++};
++#endif
++
++#endif // STEPSOURCE_H

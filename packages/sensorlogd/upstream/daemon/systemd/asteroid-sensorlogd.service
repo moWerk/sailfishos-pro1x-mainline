@@ -1,0 +1,8 @@
+[Unit]
+Description=Sensor logger for AsteroidOS
+
+[Service]
+ExecStart=/usr/bin/sensorlogd
+
+[Install]
+WantedBy=basic.target
