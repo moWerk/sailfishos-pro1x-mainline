@@ -1,0 +1,14 @@
+{
+    "entries": [
+        {
+            "path": "system_settings/look_and_feel/topmenu/steps/enable_switch",
+            "type": "custom",
+            "title": "Steps",
+            "icon": "image://theme/icon-m-health",
+            "params": {
+                "source": "/usr/share/steps-topmenu/StepsToggle.qml",
+                "type": "grid"
+            }
+        }
+    ]
+}
