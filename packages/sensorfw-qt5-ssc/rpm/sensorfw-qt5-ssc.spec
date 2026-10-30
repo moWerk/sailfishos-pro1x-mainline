@@ -1,7 +1,7 @@
 Name:       sensorfw-qt5-ssc
 Summary:    sensorfw adaptors for Qualcomm SSC sensors (libssc)
 Version:    0.1
-Release:    3
+Release:    4
 License:    LGPLv2
 URL:        https://github.com/moWerk
 Source0:    %{name}-%{version}.tar.gz
@@ -16,7 +16,7 @@ Requires:   sensorfw-qt5
 Requires:   libssc
 
 %description
-Accelerometer, gyroscope, magnetometer, ambient light and proximity adaptor
+Accelerometer, gyroscope, magnetometer, ambient light, proximity and step counter adaptor
 plugins for sensord, reading the Snapdragon Sensor Core on the ADSP through
 libssc (QRTR/QMI). For mainline kernels where these sensors have no IIO device.
 

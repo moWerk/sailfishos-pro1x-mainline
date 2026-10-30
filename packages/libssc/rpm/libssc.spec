@@ -1,6 +1,6 @@
 Name:       libssc
 Version:    0.4.4
-Release:    2
+Release:    3
 Summary:    Library to access the sensors of the Qualcomm Sensor Core
 License:    GPL-3.0-or-later
 URL:        https://codeberg.org/DylanVanAssche/libssc
@@ -8,6 +8,7 @@ Source0:    %{name}-%{version}.tar.bz2
 # Applied in the tree (mb2 builds the directory as it is); listed for the record.
 Patch1:     0001-Build-without-the-mock-server-and-tests.patch
 Patch2:     0002-sensor-ignore-other-clients-discovery-while-waiting.patch
+Patch3:     0003-Add-a-pedometer-step-counter-sensor.patch
 BuildRequires: meson >= 1.4.0
 BuildRequires: ninja
 BuildRequires: pkgconfig(glib-2.0)
@@ -19,7 +20,7 @@ BuildRequires: protobuf-compiler
 
 %description
 GLib library talking QMI over QRTR to the Sensor Core (SSC) on the ADSP of Qualcomm SoCs:
-accelerometer, gyroscope, magnetometer, compass, light and proximity. Used by the
+accelerometer, gyroscope, magnetometer, compass, light, proximity and the pedometer (step counter). Used by the
 F(x)tec Pro1-X mainline SailfishOS port (SM6115), where these sensors have no kernel driver.
 
 %package devel

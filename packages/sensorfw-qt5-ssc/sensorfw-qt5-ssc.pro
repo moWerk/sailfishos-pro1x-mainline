@@ -1,2 +1,2 @@
 TEMPLATE = subdirs
-SUBDIRS = sscaccelerometeradaptor sscgyroscopeadaptor sscmagnetometeradaptor sscalsadaptor sscproximityadaptor
+SUBDIRS = sscaccelerometeradaptor sscgyroscopeadaptor sscmagnetometeradaptor sscalsadaptor sscproximityadaptor sscstepcounteradaptor

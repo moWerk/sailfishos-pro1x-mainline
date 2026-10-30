@@ -46,14 +46,23 @@ LIBSSC_0.4.0 {
 		ssc_sensor_magnetometer_close_finish;
 		ssc_sensor_magnetometer_close_sync;
 		ssc_sensor_proximity_new;
+		ssc_sensor_pedometer_new;
 		ssc_sensor_proximity_new_finish;
+		ssc_sensor_pedometer_new_finish;
 		ssc_sensor_proximity_new_sync;
+		ssc_sensor_pedometer_new_sync;
 		ssc_sensor_proximity_open;
+		ssc_sensor_pedometer_open;
 		ssc_sensor_proximity_open_finish;
+		ssc_sensor_pedometer_open_finish;
 		ssc_sensor_proximity_open_sync;
+		ssc_sensor_pedometer_open_sync;
 		ssc_sensor_proximity_close;
+		ssc_sensor_pedometer_close;
 		ssc_sensor_proximity_close_finish;
+		ssc_sensor_pedometer_close_finish;
 		ssc_sensor_proximity_close_sync;
+		ssc_sensor_pedometer_close_sync;
 		ssc_sensor_new;
 		ssc_sensor_new_finish;
 		ssc_sensor_new_sync;
@@ -70,6 +79,7 @@ LIBSSC_0.4.0 {
 		ssc_sensor_light_get_type;
 		ssc_sensor_magnetometer_get_type;
 		ssc_sensor_proximity_get_type;
+		ssc_sensor_pedometer_get_type;
 		ssc_sensor_error_quark;
 	local:
 		*;

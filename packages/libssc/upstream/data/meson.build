@@ -22,6 +22,7 @@ msgs = [
   'common',
   'sensor-suid',
   'sensor-proximity',
+  'sensor-pedometer',
   'sensor-light',
   'sensor-accelerometer',
   'sensor-magnetometer',

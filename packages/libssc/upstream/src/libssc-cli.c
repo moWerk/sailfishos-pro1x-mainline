@@ -135,6 +135,28 @@ static void proximity_measurement (SSCSensorProximity *sensor, gboolean near, gp
 /*****************************************************************************/
 
 static gboolean
+pedometer_close_cb (SSCSensorPedometer *self)
+{
+	g_autoptr (GError) err = NULL;
+
+	if (!ssc_sensor_pedometer_close_sync (self, NULL, &err))
+		g_printf ("Unable to close pedometer sensor: %s\n", err ? err->message : "UNKNOWN");
+
+	g_debug ("Pedometer sensor disabled");
+	exit(0);
+
+	return G_SOURCE_REMOVE;
+}
+
+static void pedometer_measurement (SSCSensorPedometer *sensor, guint step_count, gpointer user_data)
+{
+	g_printf ("Pedometer sensor measurement: %u steps\n", step_count);
+	fflush(stdout);
+}
+
+/*****************************************************************************/
+
+static gboolean
 gyroscope_close_cb (SSCSensorGyroscope *self)
 {
 	g_autoptr (GError) err = NULL;
@@ -168,7 +190,7 @@ int main(int argc, char *argv[])
 	const GOptionEntry options[] = {
 		{ "version", 0, 0, G_OPTION_ARG_NONE, &print_version, "Print version information and exit.", NULL },
 		{ "debug", 'v', 0, G_OPTION_ARG_NONE, &debug, "Enable debug logs.", NULL },
-		{ "sensor", 0, 0, G_OPTION_ARG_STRING, &sensor_str, "Enable a sensor. Supported sensors: 'proximity', 'light', 'accelerometer', 'magnetometer', 'compass'", NULL },
+		{ "sensor", 0, 0, G_OPTION_ARG_STRING, &sensor_str, "Enable a sensor. Supported sensors: 'proximity', 'pedometer', 'light', 'accelerometer', 'magnetometer', 'compass'", NULL },
 		{ "timeout", 0, 0, G_OPTION_ARG_INT64, &timeout, "Number of seconds before this will timeout [default 10]", NULL },
 		{ NULL, 0, 0, G_OPTION_ARG_NONE, NULL, NULL, NULL }
 	};
@@ -214,6 +236,21 @@ int main(int argc, char *argv[])
 			return OPEN_FAIL_EXIT_CODE;
 		}
 		g_timeout_add_seconds (timeout, (GSourceFunc)proximity_close_cb, proximity);
+	} else if (g_strcmp0 (sensor_str, "pedometer") == 0) {
+		SSCSensorPedometer *pedometer = ssc_sensor_pedometer_new_sync (NULL, &err);
+		if (!pedometer) {
+			g_printf ("Unable to initialize pedometer sensor: %s\n", err ? err->message : "UNKNOWN");
+			return INIT_FAIL_EXIT_CODE;
+		}
+		g_signal_connect (pedometer,
+			  	  "measurement",
+			  	  G_CALLBACK (pedometer_measurement),
+			  	  NULL);
+		if (!ssc_sensor_pedometer_open_sync (pedometer, NULL, &err)) {
+			g_printf ("Unable to open pedometer sensor: %s\n", err ? err->message : "UNKNOWN");
+			return OPEN_FAIL_EXIT_CODE;
+		}
+		g_timeout_add_seconds (timeout, (GSourceFunc)pedometer_close_cb, pedometer);
 	} else if (g_strcmp0 (sensor_str, "light") == 0) {
 		SSCSensorLight *light = ssc_sensor_light_new_sync (NULL, &err);
 		if (!light) {
@@ -290,7 +327,7 @@ int main(int argc, char *argv[])
 		}
 		g_timeout_add_seconds (timeout, (GSourceFunc)gyroscope_close_cb, gyroscope);
 	} else {
-		g_printf ("Specify a supported sensor: 'proximity', 'light', 'accelerometer', 'magnetometer', 'compass', 'gyroscope'\n");
+		g_printf ("Specify a supported sensor: 'proximity', 'pedometer', 'light', 'accelerometer', 'magnetometer', 'compass', 'gyroscope'\n");
 		return GENERAL_FAIL_EXIT_CODE;
 	}
 

@@ -31,6 +31,7 @@
 #include "libssc-version-private.h"
 #include "libssc-sensor.h"
 #include "libssc-sensor-proximity.h"
+#include "libssc-sensor-pedometer.h"
 #include "libssc-sensor-light.h"
 #include "libssc-sensor-accelerometer.h"
 #include "libssc-sensor-magnetometer.h"

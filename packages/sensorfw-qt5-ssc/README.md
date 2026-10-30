@@ -25,3 +25,14 @@ First run (with the author), after `ssccli` has shown samples:
 1. `cp /root/rpms/60-qx1050-ssc.conf /etc/sensorfw/sensord.conf.d/; systemctl restart sensorfwd`
 2. `journalctl -u sensorfwd -f`: "registering ssc...adaptor", then start/stop lines from mce.
 3. Settings: auto brightness, proximity during a call, rotation; check the axes.
+
+## Step counter (2026-10-30)
+
+`sscstepcounteradaptor` registers `stepcounteradaptor` for sensorfw's stepcountersensor, fed by
+libssc's pedometer (libssc patch 0003). The config enables the sensor (`[available]`), which
+20-sensors-default.conf hides. ssccli measured 181 steps for 170 walked (pedometer verified);
+the adaptor loads (`loadPlugin stepcountersensor` true) but has had no client yet: sensortestapp
+predates the step counter and QtSensors 5.6 on SailfishOS has no QStepCounterSensor, so a client
+reads it through libsensorclient's StepCounterSensorChannelInterface. The SSC counts only while
+a client keeps it enabled; counting through AP suspend needs such a client to stay open (the
+asteroid-sensorlogd model). Not yet tested with the AP suspended: the GNSS test held a wakelock.

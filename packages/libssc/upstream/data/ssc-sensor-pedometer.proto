@@ -1,0 +1,30 @@
+/*
+ * libssc: Library to expose Qualcomm Sensor Core sensors
+ * Copyright (C) 2022-2026 Dylan Van Assche
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+syntax = "proto2";
+
+/*
+ * Pedometer (step counter) specific data, as in Qualcomm's sns_pedometer.proto.
+ * The Sensor Core counts steps on the accelerometer by itself, also while the application
+ * processor sleeps, and reports the running total.
+ * @step_count: steps counted since the sensor was enabled.
+ * SSC_MSG_REPORT_PEDOMETER_CONFIG carries the current count when the sensor is enabled,
+ * SSC_MSG_REPORT_PEDOMETER_STEP every change.
+ */
+message SscPedometerResponse {
+	required uint32 step_count = 1;
+}
