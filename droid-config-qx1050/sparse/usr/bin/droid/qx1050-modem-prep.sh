@@ -13,6 +13,12 @@
 #    the wait is long, and afterwards a watch loop prepares the modem again and restarts
 #    ofono whenever UIM disappears and comes back (a modem restart drops the session and
 #    the links; an ofono started on an unprepared modem hangs, and lipstick with it).
+# 4. Voice over the circuit-switched network. With its MCFG files (qx1050-modem-pr) the modem
+#    selects the SIM's carrier profile, e.g. Germany-VoLTE-Vodafone with voice domain
+#    "ps-preferred": the network then routes incoming calls to VoLTE, which this port has no
+#    IMS stack for, and the caller hears "not available" until an outgoing call has made the
+#    phone register for circuit-switched voice. cs-preferred keeps incoming calls working
+#    (tested 2026-10-30, awake and suspended). qmicli cannot set it: qx1050-voice-domain.py.
 log() { echo "qx1050-modem-prep: $*"; }
 uim() { qrtr-lookup 2>/dev/null | awk '$1 == 11 { f = 1 } END { exit !f }'; }
 
@@ -44,6 +50,7 @@ prep() {
       || ip link add link rmnet_ipa0 name rmnet_data$n type rmnet mux_id $((n + 1))
   done
   log "rmnet links ready"
+  /usr/bin/droid/qx1050-voice-domain.py cs-preferred 2>&1 | sed 's/^/qx1050-modem-prep: /'
 }
 
 i=0
