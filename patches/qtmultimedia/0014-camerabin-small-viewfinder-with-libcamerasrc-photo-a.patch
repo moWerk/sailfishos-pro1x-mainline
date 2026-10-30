@@ -1,0 +1,63 @@
+From 6f9b737370854803da74c324afbd7b4cbb42f855 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Fri, 30 Oct 2026 02:45:15 +0100
+Subject: [PATCH] camerabin: small viewfinder with libcamerasrc, photo at full
+ size, Release 15
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+wrappercamerabinsrc has one source stream, so camerabin ran the photo
+viewfinder at the image resolution (3200x1800 in jolla-camera): about
+10 fps, and the autofocus sampled as slowly. libcamerasrc renegotiates
+by restarting the camera in the same sensor mode, so with it the
+viewfinder keeps the size the application asked for and only the
+captured frame comes at the image resolution (wrappercamerabinsrc
+captures the first buffer after the switch; the IPA keeps exposure and
+focus over it). QT_GSTREAMER_LIBCAMERA_FULL_VIEWFINDER=1 restores the
+old behaviour.
+
+Disclosure: LLMGD-0 · origin O1 (author chose a small viewfinder with a switch at the shutter, the model wrote the change; not yet run on the device)
+LLMGD: v0.3; assurance=A0; flags=none; origin=O1; origin_headline=O1; scope=qtmultimedia; graded-by=model; retrieval=none
+---
+ rpm/qtmultimedia.spec                                |  2 +-
+ src/plugins/gstreamer/camerabin/camerabinsession.cpp | 10 +++++++++-
+ 2 files changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/rpm/qtmultimedia.spec b/rpm/qtmultimedia.spec
+index 6ff5ef81..b88b77c8 100644
+--- a/rpm/qtmultimedia.spec
++++ b/rpm/qtmultimedia.spec
+@@ -1,7 +1,7 @@
+ Name:       qt5-qtmultimedia
+ Summary:    Qt Multimedia module
+ Version:    5.6.2+v4l.20261024000000.qx1050
+-Release:    14%{?dist}
++Release:    15%{?dist}
+ License:    (LGPLv2 or LGPLv3) with exception or GPLv3 or Qt Commercial
+ URL:        https://www.qt.io/
+ Source0:    %{name}-%{version}.tar.bz2
+diff --git a/src/plugins/gstreamer/camerabin/camerabinsession.cpp b/src/plugins/gstreamer/camerabin/camerabinsession.cpp
+index a3f2ea69..aff8f731 100644
+--- a/src/plugins/gstreamer/camerabin/camerabinsession.cpp
++++ b/src/plugins/gstreamer/camerabin/camerabinsession.cpp
+@@ -349,7 +349,15 @@ void CameraBinSession::setupCaptureResolution()
+     // If capture resolution is specified, use it also for the viewfinder to avoid caps negotiation
+     // to fail.
+     if (m_usingWrapperCameraBinSrc) {
+-        if (m_captureMode == QCamera::CaptureStillImage && !imageResolution.isEmpty())
++        // libcamerasrc renegotiates by restarting the camera in the same sensor mode, so
++        // the viewfinder can stay small (smooth, faster autofocus) and only the captured
++        // frame comes at the image resolution. QT_GSTREAMER_LIBCAMERA_FULL_VIEWFINDER=1
++        // keeps the viewfinder at the image resolution.
++        static const bool fullViewfinder = qgetenv("QT_GSTREAMER_LIBCAMERA_FULL_VIEWFINDER") == "1";
++        const bool smallViewfinder = libcameraSource() && !fullViewfinder
++                && !viewfinderResolution.isEmpty();
++        if (m_captureMode == QCamera::CaptureStillImage && !imageResolution.isEmpty()
++                && !smallViewfinder)
+             viewfinderResolution = imageResolution;
+         else if (m_captureMode == QCamera::CaptureVideo && !videoResolution.isEmpty())
+             viewfinderResolution = videoResolution;
+-- 
+2.56.0
+

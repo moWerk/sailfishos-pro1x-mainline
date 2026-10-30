@@ -1,0 +1,273 @@
+From 9b2d904a9fc6e0dce7b493940ca21bec0eafaecb Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Fri, 30 Oct 2026 02:43:01 +0100
+Subject: [PATCH] simple: Keep exposure, colour and focus over a camera restart
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+An application that takes a photo at a higher resolution than its
+viewfinder restarts the camera around the capture, here also into
+another sensor mode (imx582: 1984x1080 4x4 binned for the viewfinder,
+4000x3000 for the still), and wrappercamerabinsrc keeps the first frame
+after the switch. The IPA cleared its whole state on configure, and the
+sensor kept its exposure in lines, which last differently long in the
+new mode.
+
+- The pipeline converts the sensor's exposure to the new mode's line
+  length before streaming starts, so the first frame is exposed as the
+  viewfinder was.
+- The IPA keeps AGC (exposure converted to the new lines), AWB and black
+  level state, and a found focus; sharpness is re-referenced because it
+  is not comparable between modes.
+- IPAConfigInfo carries the configured sensor mode's IPACameraSensorInfo:
+  the IPA read it only at init, so its line duration (exposure time
+  conversions, ExposureTime) stayed that of the default mode.
+- The software ISP keeps the requested AfWindows and maps it into each
+  new mode's frame.
+
+Disclosure: LLMGD-2 · origin O1 (author asked for a faster photo viewfinder, the model wrote the change and ran a headless camerabin capture on the device: viewfinder 1984x1080 mode at 54 fps, still 3200x1800 in 0.95 s)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=libcamera; graded-by=model; retrieval=none
+---
+ .../internal/software_isp/software_isp.h      |  2 +
+ include/libcamera/ipa/soft.mojom              |  2 +
+ src/ipa/simple/soft_simple.cpp                | 41 +++++++++++++++++-
+ src/libcamera/pipeline/simple/simple.cpp      | 38 ++++++++++++++++
+ src/libcamera/software_isp/software_isp.cpp   | 43 +++++++++++++------
+ 5 files changed, 111 insertions(+), 15 deletions(-)
+
+diff --git a/include/libcamera/internal/software_isp/software_isp.h b/include/libcamera/internal/software_isp/software_isp.h
+index 9a1e8816..7fba2f0c 100644
+--- a/include/libcamera/internal/software_isp/software_isp.h
++++ b/include/libcamera/internal/software_isp/software_isp.h
+@@ -99,6 +99,8 @@ private:
+ 	const CameraSensor *sensor_;
+ 	Rectangle afCrop_;
+ 	Size afFrame_;
++	Rectangle afWindow_;
++	void applyAfWindow();
+ 	Thread ispWorkerThread_;
+ 	SharedMemObject<DebayerParams> sharedParams_;
+ 	DebayerParams debayerParams_;
+diff --git a/include/libcamera/ipa/soft.mojom b/include/libcamera/ipa/soft.mojom
+index e5767532..55085285 100644
+--- a/include/libcamera/ipa/soft.mojom
++++ b/include/libcamera/ipa/soft.mojom
+@@ -11,6 +11,8 @@ import "include/libcamera/ipa/core.mojom";
+ struct IPAConfigInfo {
+ 	libcamera.ControlInfoMap sensorControls;
+ 	libcamera.ControlInfoMap lensControls;
++	/* The configured sensor mode; init() only sees the default one */
++	libcamera.IPACameraSensorInfo sensorInfo;
+ };
+ 
+ interface IPASoftInterface {
+diff --git a/src/ipa/simple/soft_simple.cpp b/src/ipa/simple/soft_simple.cpp
+index f6795e2b..c958e925 100644
+--- a/src/ipa/simple/soft_simple.cpp
++++ b/src/ipa/simple/soft_simple.cpp
+@@ -81,6 +81,8 @@ private:
+ 
+ 	/* Local parameter storage */
+ 	struct IPAContext context_;
++	/* A previous streaming session, whose state a restart in the same mode keeps */
++	bool configured_ = false;
+ };
+ 
+ IPASoftSimple::~IPASoftSimple()
+@@ -203,11 +205,23 @@ int IPASoftSimple::configure(const IPAConfigInfo &configInfo)
+ {
+ 	sensorInfoMap_ = configInfo.sensorControls;
+ 	context_.lensControls = configInfo.lensControls;
++	/* Line length and pixel rate change with the sensor mode */
++	if (configInfo.sensorInfo.pixelRate)
++		context_.sensorInfo = configInfo.sensorInfo;
+ 
+ 	const ControlInfo &exposureInfo = sensorInfoMap_.find(V4L2_CID_EXPOSURE)->second;
+ 	const ControlInfo &gainInfo = sensorInfoMap_.find(V4L2_CID_ANALOGUE_GAIN)->second;
+ 
+-	/* Clear the IPA context before the streaming session. */
++	/*
++	 * Clear the IPA context before the streaming session, but remember the
++	 * previous one: an application that restarts the camera (a photo taken
++	 * at a higher resolution than the viewfinder, often in another sensor
++	 * mode) keeps exposure, colour and a found focus.
++	 */
++	const IPAActiveState previousState = context_.activeState;
++	const auto previousAgc = context_.configuration.agc;
++	const bool hadSession = configured_;
++
+ 	context_.configuration = {};
+ 	context_.activeState = {};
+ 	context_.frameContexts.clear();
+@@ -256,6 +270,31 @@ int IPASoftSimple::configure(const IPAConfigInfo &configInfo)
+ 			return ret;
+ 	}
+ 
++	const auto &agc = context_.configuration.agc;
++	if (hadSession && previousState.agc.valid && previousAgc.lineDuration) {
++		/* The exposure time carries over, converted to the new mode's lines */
++		context_.activeState.agc = previousState.agc;
++		const double lines = previousState.agc.exposure *
++				     (previousAgc.lineDuration / agc.lineDuration);
++		context_.activeState.agc.exposure =
++			std::clamp(static_cast<int32_t>(lines + 0.5),
++				   agc.exposureMin, agc.exposureMax);
++		context_.activeState.awb = previousState.awb;
++		context_.activeState.blc = previousState.blc;
++		/*
++		 * The lens stays where it is. Sharpness is not comparable between
++		 * modes, so the next measurement becomes the reference.
++		 */
++		if (previousState.af.stable) {
++			context_.activeState.af = previousState.af;
++			context_.activeState.af.maxVariance = 0;
++		}
++		LOG(IPASoft, Debug)
++			<< "Keeping exposure (" << previousState.agc.exposure << " -> "
++			<< context_.activeState.agc.exposure << " lines), colour and focus";
++	}
++	configured_ = true;
++
+ 	LOG(IPASoft, Info)
+ 		<< "Exposure " << context_.configuration.agc.exposureMin << "-"
+ 		<< context_.configuration.agc.exposureMax
+diff --git a/src/libcamera/pipeline/simple/simple.cpp b/src/libcamera/pipeline/simple/simple.cpp
+index 4342b6db..6a504f0d 100644
+--- a/src/libcamera/pipeline/simple/simple.cpp
++++ b/src/libcamera/pipeline/simple/simple.cpp
+@@ -7,6 +7,8 @@
+  */
+ 
+ #include <algorithm>
++#include <array>
++#include <cmath>
+ #include <iterator>
+ #include <list>
+ #include <map>
+@@ -1531,11 +1533,45 @@ int SimplePipelineHandler::configure(Camera *camera, CameraConfiguration *c)
+ 	format.code = pipeConfig->code;
+ 	format.size = pipeConfig->sensorSize;
+ 
++	/*
++	 * The sensor keeps its exposure in lines over a mode change, and lines
++	 * last differently long in another mode. An application that takes a
++	 * still in another mode than its viewfinder gets the first frame of the
++	 * new mode, before the IPA has run: convert the exposure so that frame
++	 * is exposed as the viewfinder was.
++	 */
++	IPACameraSensorInfo before{};
++	std::optional<int32_t> exposureLines;
++	if (!data->sensor_->sensorInfo(&before) && before.pixelRate) {
++		const std::array<uint32_t, 1> ids{ V4L2_CID_EXPOSURE };
++		ControlList ctrls = data->sensor_->getControls(ids);
++		if (ctrls.contains(V4L2_CID_EXPOSURE))
++			exposureLines = ctrls.get(V4L2_CID_EXPOSURE).get<int32_t>();
++	}
++
+ 	ret = data->setupFormats(&format, V4L2Subdevice::ActiveFormat,
+ 				 config->combinedTransform());
+ 	if (ret < 0)
+ 		return ret;
+ 
++	IPACameraSensorInfo after{};
++	if (exposureLines && !data->sensor_->sensorInfo(&after) && after.pixelRate &&
++	    before.minLineLength * after.pixelRate != after.minLineLength * before.pixelRate) {
++		const double ratio = (static_cast<double>(before.minLineLength) / before.pixelRate) /
++				     (static_cast<double>(after.minLineLength) / after.pixelRate);
++		int32_t lines = std::lround(*exposureLines * ratio);
++		const auto it = data->sensor_->controls().find(V4L2_CID_EXPOSURE);
++		if (it != data->sensor_->controls().end())
++			lines = std::clamp(lines, it->second.min().get<int32_t>(),
++					   it->second.max().get<int32_t>());
++		ControlList ctrls(data->sensor_->controls());
++		ctrls.set(V4L2_CID_EXPOSURE, lines);
++		data->sensor_->setControls(&ctrls);
++		LOG(SimplePipeline, Debug)
++			<< "Exposure " << *exposureLines << " -> " << lines
++			<< " lines over the mode change";
++	}
++
+ 	/* Configure the video node, taking into account any Bayer pattern change. */
+ 	V4L2PixelFormat videoFormat;
+ 	if (format.code == pipeConfig->code) {
+@@ -1618,6 +1654,8 @@ int SimplePipelineHandler::configure(Camera *camera, CameraConfiguration *c)
+ 	} else {
+ 		ipa::soft::IPAConfigInfo configInfo;
+ 		configInfo.sensorControls = data->sensor_->controls();
++		if (data->sensor_->sensorInfo(&configInfo.sensorInfo))
++			configInfo.sensorInfo = {};
+ 		if (data->sensor_->focusLens())
+ 			configInfo.lensControls = data->sensor_->focusLens()->controls();
+ 		return data->swIsp_->configure(inputCfg, outputCfgs, configInfo);
+diff --git a/src/libcamera/software_isp/software_isp.cpp b/src/libcamera/software_isp/software_isp.cpp
+index 74784953..c103beb7 100644
+--- a/src/libcamera/software_isp/software_isp.cpp
++++ b/src/libcamera/software_isp/software_isp.cpp
+@@ -307,6 +307,8 @@ int SoftwareIsp::configure(const StreamConfiguration &inputCfg,
+ 		afCrop_ = Rectangle();
+ 		afFrame_ = Size();
+ 	}
++	/* A tapped area outlives a restart, also into another sensor mode */
++	applyAfWindow();
+ 
+ 	LOG(SoftwareIsp, Info)
+ 		<< "Input " << inputCfg.size
+@@ -341,6 +343,30 @@ int SoftwareIsp::exportBuffers(const Stream *stream, unsigned int count,
+  * \param[in] frame The number of the frame which will be processed next
+  * \param[in] controls The controls for the \a frame
+  */
++/*
++ * AfWindows are in pixel array coordinates; the autofocus sharpness is
++ * computed on the input frame, which shows the sensor's analogue crop
++ * (scaled by binning). The first window is used; none restores the default.
++ */
++void SoftwareIsp::applyAfWindow()
++{
++	if (!debayer_ || afCrop_.isNull() || afFrame_.isNull())
++		return;
++
++	Rectangle area;
++	if (!afWindow_.isNull()) {
++		const double sx = static_cast<double>(afFrame_.width) / afCrop_.width;
++		const double sy = static_cast<double>(afFrame_.height) / afCrop_.height;
++		area = Rectangle(static_cast<int>((afWindow_.x - afCrop_.x) * sx),
++				 static_cast<int>((afWindow_.y - afCrop_.y) * sy),
++				 static_cast<unsigned int>(afWindow_.width * sx),
++				 static_cast<unsigned int>(afWindow_.height * sy));
++		if (area.x < 0 || area.y < 0)
++			area = Rectangle();
++	}
++	debayer_->setSharpnessArea(area);
++}
++
+ void SoftwareIsp::queueRequest(const uint32_t frame, const ControlList &controls)
+ {
+ 	/*
+@@ -349,20 +375,9 @@ void SoftwareIsp::queueRequest(const uint32_t frame, const ControlList &controls
+ 	 * (scaled by binning). The first window is used; none restores the default.
+ 	 */
+ 	const auto &afWindows = controls.get(controls::AfWindows);
+-	if (afWindows && debayer_ && !afCrop_.isNull() && !afFrame_.isNull()) {
+-		Rectangle area;
+-		if (!afWindows->empty()) {
+-			const Rectangle &w = (*afWindows)[0];
+-			const double sx = static_cast<double>(afFrame_.width) / afCrop_.width;
+-			const double sy = static_cast<double>(afFrame_.height) / afCrop_.height;
+-			area = Rectangle(static_cast<int>((w.x - afCrop_.x) * sx),
+-					 static_cast<int>((w.y - afCrop_.y) * sy),
+-					 static_cast<unsigned int>(w.width * sx),
+-					 static_cast<unsigned int>(w.height * sy));
+-			if (area.x < 0 || area.y < 0)
+-				area = Rectangle();
+-		}
+-		debayer_->setSharpnessArea(area);
++	if (afWindows) {
++		afWindow_ = afWindows->empty() ? Rectangle() : (*afWindows)[0];
++		applyAfWindow();
+ 	}
+ 
+ 	ipa_->queueRequest(frame, controls);
+-- 
+2.56.0
+

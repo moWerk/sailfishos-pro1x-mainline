@@ -1,0 +1,79 @@
+From 0ab985e56184ed357e86a41fca09c8889a402010 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Fri, 30 Oct 2026 02:43:01 +0100
+Subject: [PATCH 16/17] software_isp: debayer_egl: Centre the scaled crop,
+ stats on what it shows
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When the output is smaller than the input, the GPU debayer scales the
+image and crops it to the output's shape, but the projection scaled
+about the viewport origin, so the crop sat at one edge instead of the
+centre. The statistics window was the output size at the input's
+origin, a crop that only matches an unscaled output: at 1920x1080 from
+a 4000x3000 input, exposure, colour and focus statistics covered the
+top-left sixth of the frame.
+
+Translate the projection so the crop is centred, and give the
+statistics the centred part of the input that the output shows.
+
+Disclosure: LLMGD-0 · origin O1 (author asked for a faster photo viewfinder, the model found the crop and statistics offsets and wrote the change; not yet run on the device)
+LLMGD: v0.3; assurance=A0; flags=none; origin=O1; origin_headline=O1; scope=libcamera; graded-by=model; retrieval=none
+---
+ src/libcamera/software_isp/debayer_egl.cpp | 28 +++++++++++++++++++---
+ 1 file changed, 25 insertions(+), 3 deletions(-)
+
+diff --git a/src/libcamera/software_isp/debayer_egl.cpp b/src/libcamera/software_isp/debayer_egl.cpp
+index 72ecd274..830bc3bd 100644
+--- a/src/libcamera/software_isp/debayer_egl.cpp
++++ b/src/libcamera/software_isp/debayer_egl.cpp
+@@ -343,7 +343,21 @@ int DebayerEGL::configure(const StreamConfiguration &inputCfg,
+ 	 * Don't pass x,y from window_ since process() already adjusts for it.
+ 	 * But crop the window to 2/3 of its width and height for speedup.
+ 	 */
+-	stats_->setWindow(Rectangle(window_.size()));
++	/*
++	 * The output is the input scaled down and centre-cropped to the output's
++	 * shape, not a crop of window_ (which assumes no scaling): give the
++	 * statistics the part of the input the output shows.
++	 */
++	{
++		const double scale = std::max(static_cast<double>(outputCfg.size.width) / nativeOutputSize_.width,
++					      static_cast<double>(outputCfg.size.height) / nativeOutputSize_.height);
++		const unsigned int w = std::min<unsigned int>(nativeOutputSize_.width,
++							      outputCfg.size.width / scale);
++		const unsigned int h = std::min<unsigned int>(nativeOutputSize_.height,
++							      outputCfg.size.height / scale);
++		stats_->setWindow(Rectangle((inputCfg.size.width - w) / 2,
++					    (inputCfg.size.height - h) / 2, w, h));
++	}
+ 
+ 	inputBufferCount_ = inputCfg.bufferCount;
+ 	outputBufferCount_ = outputCfg.bufferCount;
+@@ -411,12 +425,20 @@ void DebayerEGL::setShaderVariableValues(eGLImage &eglImageIn, const DebayerPara
+ 	 */
+ 	GLfloat scale = std::max((GLfloat)outputSize_.width / nativeOutputSize_.width,
+ 				 (GLfloat)outputSize_.height / nativeOutputSize_.height);
+-	GLfloat trans = -(1.0f - scale);
++	/*
++	 * The viewport is the input size and the image fills scale times it
++	 * from the origin; shift it so that the crop is centred on the output,
++	 * as the statistics window assumes.
++	 */
++	GLfloat transX = -(1.0f - scale) +
++			 ((GLfloat)outputSize_.width - scale * width_) / width_;
++	GLfloat transY = -(1.0f - scale) +
++			 ((GLfloat)outputSize_.height - scale * height_) / height_;
+ 	GLfloat projMatrix[] = {
+ 		scale, 0, 0, 0,
+ 		0, scale, 0, 0,
+ 		0, 0, 1, 0,
+-		trans, trans, 0, 1
++		transX, transY, 0, 1
+ 	};
+ 	/* Static const coordinates */
+ 	static const GLfloat vcoordinates[4][2] = {
+-- 
+2.56.0
+
