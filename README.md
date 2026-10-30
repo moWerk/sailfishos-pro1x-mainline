@@ -12,12 +12,12 @@ October 2026. It is meant to be read and rewritten by someone with porting and u
 experience, not merged as is. Every decision that was taken is written down here or in
 `notes/`; where something was guessed, the file says so.
 
-## State (updated 2026-10-30 09:10 CET)
+## State (updated 2026-10-30 15:05 CET)
 
 | Area | State | Where |
 |---|---|---|
 | OS | SailfishOS 5.2.0.22, upgraded in place from 5.1.0.11; Jolla Store, OS update page, accounts and sync from `patterns-sailfish-consumer-generic` | `notes/sfos-5.2-upgrade.md`, `scripts/stage1-base.sh` |
-| Kernel | own 7.3.0-qx1050: v7.3 + 31 patches (`kernel/patches-7.3/`, what each is and its upstream status in `kernel/HANDOVER.md`) | `kernel/` |
+| Kernel | own 7.3.0-qx1050: v7.3 + 35 patches (`kernel/patches-7.3/`, what each is and its upstream status in `kernel/HANDOVER.md`) | `kernel/` |
 | Mobile data | works, toggle in Settings works: ofono patch 0020 (DPM open port, QMAPv4 with DL aggregation, bind without client type), rmnet links with MAPv4 checksum offload | `patches/ofono/`, `sparse/usr/bin/droid/qx1050-modem-prep.sh` |
 | Calls, SMS | calls connect both ways, ringtone plays, SMS; Settings > SIM cards (`jolla-settings-networking-multisim`) | |
 | Call audio | **works** both ways on the earpiece and the speaker, switching between them takes about 2 s, volume keys set the call volume (2026-10-29). The codec DMA back ends stall on every start in the call profile; the helper restarts them. Bluetooth earbuds in calls, wired headset and an echo canceller still open | `packages/qx1050-voicecall/README.md` |
@@ -25,6 +25,7 @@ experience, not merged as is. Every decision that was taken is written down here
 | Charging | Settings > Battery charge limit: mce switches the PMI632 charge enable through a new `charging_enabled` attribute (kernel patch 0017); stops at the set limit. Plug-in shows the charging notification with its sound, then the USB mode notification; unplug is silent (kernel patch 0025: plug changes reported at once, battery event before the charger's on unplug; usb-moded cable connection delay 500 ms) (2026-10-29). Low battery warning works. 5 V only, input limited to 1.5 A (no USB-PD fast charging yet) | `sparse/etc/mce/92-qx1050-charging.ini`, `sparse/var/lib/environment/usb-moded/` |
 | Display | panel turns off with a clean fade: the panel driver now sends display off while video still runs (kernel patch 0023); before, every blank ended in one corrupted full-brightness frame. Wake: the panel came out of sleep at its power-on brightness before the backlight was enabled (bright, dim, then the ramp); kernel patch 0030 sends the level before display on: one unclean ramp seen in about 12 wakes since, not reproducible | |
 | Double-tap to wake | **works**: double-tap the dark screen to wake it, as on Jolla's own devices (many community ports lack it). mce's doubletap module with the touchscreen driver's wakeup gesture | `sparse/etc/mce/` |
+| Sleep | **suspends** (s2idle) since 2026-10-30: the kernel had no CONFIG_PM_AUTOSLEEP, so mce could never suspend it. The ADSP sensor process crashed at resume until the TB-J606L fastrpc and SMP2P sleepstate patches (0032-0034). Wakes: power key, keyboard slide, double-tap (0035), RTC alarms. Left: the SoC never reaches deep sleep (RPM vlow/vmin 0), an mce RTC wake about every minute, about 100 mA average asleep and 250-300 mA awake with the screen off; Wi-Fi reconnects about 5 s after each resume | `notes/sleep.md` |
 | Touch | works, multitouch | kernel |
 | Wi-Fi | ath10k (WCN3950, 1x1). Measured against a wired host (2026-10-30): 5 GHz VHT80 about 195 Mbit/s down, 210-225 Mbit/s up at -70 to -80 dBm; 2.4 GHz HT40 about 97 down, 80 up. connman, stable MAC derived from machine-id (connman is restarted once when wlan0 appears, on purpose: `notes/boot-audit.md`) | `sparse/lib/udev/rules.d/70-qx1050-wlan-mac.rules` |
 | Storage, memory | UFS reads at queue depth 1 nearly doubled (Benchymark storage 72/48 -> 76/86 MB/s write/read): the UFS PM QoS vote now follows the clocks (kernel patch 0024), so CPUs stay out of deep idle (666 us exit latency) while UFS is busy. zram swap: 3.5 GB lz4 (Jolla's `zram` package, CONFIG_ZRAM=m) (2026-10-29) | `kernel/patches-7.3/0024-*`, `kernel/sfos.fragment` |

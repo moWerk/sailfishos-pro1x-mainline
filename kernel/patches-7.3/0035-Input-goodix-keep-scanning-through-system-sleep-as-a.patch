@@ -1,0 +1,90 @@
+From 6605a9d5b8efdc0e8b4612eb428ff4fdb3368a1d Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Fri, 30 Oct 2026 13:29:33 +0100
+Subject: [PATCH 35/35] Input: goodix: keep scanning through system sleep as a
+ wakeup source
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+goodix_suspend() always sent the controller the screen-off command and
+freed its interrupt, so with system sleep the double-tap to wake that
+SailfishOS's mce offers on the blanked display stopped working once the
+system suspended (about 5 s after blanking on the Pro1-X): only the
+power key and the keyboard slide woke it. A controller that may wake the
+system (DT wakeup-source) now stays scanning with its interrupt armed as
+a wakeup interrupt, and resume only disarms it. The Pro1-X touchscreen
+node gains wakeup-source.
+
+Disclosure: LLMGD-0 · origin O1 (the model wrote the change after the author found double-tap dead in suspend; not yet built or run)
+LLMGD: v0.3; assurance=A0; flags=none; origin=O1; origin_headline=O1; scope=kernel; graded-by=model; retrieval=none
+---
+ arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts |  3 +++
+ drivers/input/touchscreen/goodix.c              | 16 ++++++++++++++++
+ drivers/input/touchscreen/goodix.h              |  2 ++
+ 3 files changed, 21 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts b/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
+index fef7967fb..edc9a92be 100644
+--- a/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
++++ b/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
+@@ -552,6 +552,9 @@ touchscreen@14 {
+ 
+ 			pinctrl-0 = <&ts_int_n>, <&ts_rst_n>;
+ 			pinctrl-names = "default";
++
++			/* stays scanning in system sleep: double-tap to wake */
++			wakeup-source;
+ 		};
+ 	};
+ };
+diff --git a/drivers/input/touchscreen/goodix.c b/drivers/input/touchscreen/goodix.c
+index 03efc0c79..272bdc08a 100644
+--- a/drivers/input/touchscreen/goodix.c
++++ b/drivers/input/touchscreen/goodix.c
+@@ -1434,6 +1434,16 @@ static int goodix_suspend(struct device *dev)
+ 	if (ts->load_cfg_from_disk)
+ 		wait_for_completion(&ts->firmware_loading_complete);
+ 
++	/*
++	 * A wakeup source (DT "wakeup-source") stays scanning through system
++	 * sleep, so a touch wakes the system: the double-tap to wake that works
++	 * with the display off keeps working once the system suspends.
++	 */
++	if (device_may_wakeup(dev) && !enable_irq_wake(client->irq)) {
++		ts->wake_armed = true;
++		return 0;
++	}
++
+ 	/* We need gpio pins to suspend/resume */
+ 	if (ts->irq_pin_access_method == IRQ_PIN_ACCESS_NONE) {
+ 		goodix_disable_irq(ts);
+@@ -1479,6 +1489,12 @@ static int goodix_resume(struct device *dev)
+ 	u8 config_ver;
+ 	int error;
+ 
++	if (ts->wake_armed) {
++		disable_irq_wake(client->irq);
++		ts->wake_armed = false;
++		return 0;
++	}
++
+ 	if (ts->irq_pin_access_method == IRQ_PIN_ACCESS_NONE) {
+ 		goodix_enable_irq(ts);
+ 		return 0;
+diff --git a/drivers/input/touchscreen/goodix.h b/drivers/input/touchscreen/goodix.h
+index 0d1e8a8d2..f424c360e 100644
+--- a/drivers/input/touchscreen/goodix.h
++++ b/drivers/input/touchscreen/goodix.h
+@@ -93,6 +93,8 @@ struct goodix_ts_data {
+ 	u16 version;
+ 	bool reset_controller_at_probe;
+ 	bool load_cfg_from_disk;
++	/* Kept scanning through system sleep as a wakeup source */
++	bool wake_armed;
+ 	int pen_input_registered;
+ 	struct completion firmware_loading_complete;
+ 	unsigned long irq_flags;
+-- 
+2.56.0
+

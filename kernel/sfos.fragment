@@ -68,3 +68,9 @@ CONFIG_ZRAM_DEF_COMP_LZ4=y
 # Camera flash LED as a V4L2 flash subdevice: jolla-camera runs sandboxed with /sys read-only,
 # but may open /dev/v4l-subdev* (libcamera needs them), so the camera plugin switches the LED there
 CONFIG_V4L2_FLASH_LED_CLASS=m
+
+# System sleep: mce suspends through /sys/power/autosleep, which needs PM_AUTOSLEEP; without it
+# the phone never suspended (0 suspends, 2026-10-30). The SMP2P sleep state driver tells the ADSP
+# sensor framework that the AP sleeps (kernel patches 0032-0034, from the TB-J606L port)
+CONFIG_PM_AUTOSLEEP=y
+CONFIG_QCOM_SMP2P_SLEEPSTATE=m
