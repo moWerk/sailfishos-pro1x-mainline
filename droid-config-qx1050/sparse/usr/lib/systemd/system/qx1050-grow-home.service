@@ -1,0 +1,15 @@
+[Unit]
+Description=Grow the home volume to the rest of userdata (first boot of an LVM image)
+# Only on the LVM layout and only once; before home encryption takes the volume.
+ConditionPathExists=/dev/mapper/sailfish-home
+ConditionPathExists=!/var/lib/qx1050/home-grown
+After=home.mount
+Before=home-encryption-preparation.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/droid/qx1050-grow-home.sh
+
+[Install]
+WantedBy=multi-user.target

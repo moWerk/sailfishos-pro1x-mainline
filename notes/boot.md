@@ -37,8 +37,10 @@ it does not boot on this phone; not investigated).
 Build the kernel (`kernel/build-kernel.sh`), install the modules into the rootfs, build the
 boot image and flash `boot_a`. On the phone the image can also be written with
 `dd if=sfos-boot.img of=/dev/disk/by-partlabel/boot_a` from SailfishOS. The SailfishOS
-convention for packaged kernel updates (`/boot/hybris-boot.img` plus
-`platform-updates/flash-bootimg.sh` at the next boot) is not wired up yet.
+convention for packaged kernel updates (a boot image in `/boot` plus
+`platform-updates/flash-bootimg.sh` run by preinit at the next boot) is drafted in
+`packages/kernel-qx1050/` (2026-10-30); it needs the initramfs to hand over to
+`/sbin/preinit`, which `initramfs/init-lvm` does.
 
 ## Dual boot with NixOS (option)
 
@@ -63,7 +65,8 @@ msm DRM takes over the display from the firmware.
 
 - The rootfs is still a directory on the NixOS-formatted userdata partition. The SailfishOS
   convention is LVM on userdata (`sailfish/root`, `sailfish/home`); that layout is also what
-  home encryption needs (LUKS on the home volume). Moving to it erases userdata.
+  home encryption needs (LUKS on the home volume). Moving to it erases userdata. Plan and
+  draft tools: `notes/lvm-encryption-plan.md`, `notes/flashable-images.md`.
 - Glitches between the Android logo and the splash.
 - Reboot: about 8 s of black screen. Traced 2026-10-29: systemd's shutdown takes 6.4 s with
   no timeout or hanging unit (user session 3.8 s: apps, boosters, Telepathy, lipstick; then

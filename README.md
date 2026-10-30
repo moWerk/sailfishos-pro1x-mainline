@@ -45,7 +45,7 @@ experience, not merged as is. Every decision that was taken is written down here
 | Hardware keyboard | German QWERTZ, Fn legends on AltGr (level 3) | `sparse/usr/share/X11/xkb/symbols/fxtec_vndr/pro1x`, DT patch |
 | Keyboard slide, backlight | mce drives both; DT reports the slide the way mce reads it. The backlight follows the slide and the display (2026-10-30): `sfos-dt` had inverted the LED with the slide switch, which kept it lit with the keyboard closed (kernel patch 0028) | `sparse/etc/mce/`, kernel patches `sfos-dt`, 0028 |
 | GNSS | not working yet (2026-10-30): the modem offers the QMI location service (16) and qmicli starts a session, but no NMEA arrives; nothing feeds geoclue yet. AGPS is part of this | |
-| Lock code, encryption | not yet: home is a directory, not its own volume; the SailfishOS LVM layout (next) gives home encryption | `notes/boot.md` |
+| Lock code, encryption | not yet: home is a directory, not its own volume; the SailfishOS LVM layout (next) gives home encryption. Plan and draft tools (2026-10-30): LVM initramfs, flashable image set, kernel update RPM | `notes/lvm-encryption-plan.md`, `notes/flashable-images.md` |
 | Performance | Benchymark: CPU about as hybris; storage 76/86 MB/s write/read (was 72/48); GPU +8 to +37 % with the bandwidth votes; zram swap | `notes/gpu-perf.md` |
 | Still tied to NixOS | the rootfs is a directory on the NixOS-formatted userdata partition (next: SailfishOS LVM layout, which home encryption needs), firmware set from the Nix package | `notes/boot.md` |
 

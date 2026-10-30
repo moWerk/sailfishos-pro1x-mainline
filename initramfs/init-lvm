@@ -1,0 +1,91 @@
+#!/bin/busybox sh
+# SailfishOS on mainline, Pro1-X: initramfs for the SailfishOS LVM layout.
+# DRAFT (2026-10-30), not yet booted: see notes/lvm-encryption-plan.md.
+#
+# 1. LVM: userdata is the physical volume of volume group "sailfish" with the
+#    logical volumes root and home, as on Jolla's own devices (hybris-initrd
+#    sbin/root-mount). root is mounted here, home by systemd from /etc/fstab.
+# 2. Fallback: without that volume group, the directory layout of the bring-up
+#    (/sfos/rootfs on the ext4 labelled "nixos") boots as before, so this image can
+#    be flashed and tested before userdata is converted.
+# Hands over to /sbin/preinit, not systemd: preinit runs the preinit oneshots
+# (kernel updates, add-preinit-oneshot), picks the boot state (USER, ACT_DEAD for
+# charging while off) and then starts systemd, as hybris-initrd's normal-init does.
+# Any failure powers off: a reboot would come straight back here.
+/bin/busybox --install -s /bin
+export PATH=/bin:/sbin:/usr/sbin:/usr/bin
+mkdir -p /proc /sys /dev /run /data /newroot
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+
+log() { echo "sfos-initramfs: $*" > /dev/kmsg; }
+
+if [ -f /splash.ppm ]; then
+  i=0
+  while [ ! -e /dev/fb0 ] && [ $i -lt 30 ]; do i=$((i + 1)); sleep 0.1; done
+  fbsplash -s /splash.ppm -d /dev/fb0 2>/dev/null && log "splash shown"
+fi
+fail() { log "FAILED: $*, powering off in 10 s"; sleep 10; poweroff -f; }
+
+# The partition by its GPT name; no udev here, so read sysfs.
+partdev() {
+  for u in /sys/class/block/*/uevent; do
+    if grep -qx "PARTNAME=$1" "$u"; then
+      echo "/dev/$(sed -n 's/^DEVNAME=//p' "$u")"
+      return 0
+    fi
+  done
+  return 1
+}
+
+i=0
+while [ $i -lt 100 ]; do
+  pv=$(partdev userdata) && [ -b "$pv" ] && break
+  i=$((i + 1)); sleep 0.1
+done
+[ -b "$pv" ] || fail "no userdata partition"
+
+# Without udev: lvm creates the /dev/mapper nodes itself.
+LVMCONF='devices { obtain_device_list_from_udev=0 use_devicesfile=0 }
+activation { udev_sync=0 udev_rules=0 verify_udev_operations=1 monitoring=0 }
+global { use_lvmpolld=0 }'
+mkdir -p /run/lvm /run/lock/lvm
+if [ -x /usr/sbin/lvm ] && lvm pvs --config "$LVMCONF" "$pv" >/dev/null 2>&1; then
+  log "LVM on $pv"
+  lvm vgchange -a y --sysinit --config "$LVMCONF" sailfish > /dev/kmsg 2>&1 \
+    || fail "activate volume group sailfish"
+  root=/dev/mapper/sailfish-root
+  [ -b $root ] || fail "no $root"
+  mount -t ext4 -o rw,noatime $root /newroot || fail "mount $root"
+  [ -x /newroot/sbin/preinit ] || fail "no /sbin/preinit"
+  INIT=/sbin/preinit
+else
+  # Bring-up layout (see initramfs/init).
+  dev=
+  i=0
+  while [ $i -lt 100 ]; do
+    dev=$(findfs LABEL=nixos 2>/dev/null) && break
+    i=$((i + 1)); sleep 0.1
+  done
+  [ -n "$dev" ] || fail "neither LVM nor a filesystem labelled nixos"
+  log "directory layout on $dev"
+  mount -t ext4 -o rw,noatime "$dev" /data || fail "mount $dev"
+  b=/data/boot/extlinux
+  if [ -f $b/extlinux.nixos.conf ]; then
+    mv -f $b/extlinux.nixos.conf $b/extlinux.conf && sync
+    log "next boot: NixOS (extlinux.conf restored)"
+  fi
+  [ -x /data/sfos/rootfs/sbin/init ] || [ -L /data/sfos/rootfs/sbin/init ] || fail "no /sfos/rootfs/sbin/init"
+  mount --bind /data/sfos/rootfs /newroot || fail "bind /sfos/rootfs"
+  mkdir -p /newroot/mnt/nixos
+  mount --move /data /newroot/mnt/nixos || umount -l /data
+  INIT=/sbin/preinit
+  [ -x /newroot$INIT ] || INIT=/sbin/init
+fi
+
+log "switching to SailfishOS ($INIT)"
+umount /sys /proc
+mount --move /dev /newroot/dev 2>/dev/null || umount /dev
+exec switch_root /newroot $INIT
+fail "switch_root"
