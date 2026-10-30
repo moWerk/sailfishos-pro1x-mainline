@@ -54,3 +54,12 @@ Result on a clean boot (7.3.0-qx1050, freenet on 26202, APN web.vodafone.de from
 context active, modem reports qmapv4/qmapv4, ping 3/3 at ~40 ms, HTTPS 200 in 0.5 s.
 Not checked yet: the Settings mobile data toggle and the browser with Wi-Fi off, IPv6, and
 restarting ofono without a modem restart.
+
+## 0021: register for call notifications (2026-10-30)
+
+`0021-qmimodem-voicecall-register-for-call-notifications.patch`: ofono's QMI voice driver never
+sent VOICE INDICATION REGISTER, and this modem (with its carrier MCFG) sends ALL CALL STATUS only to
+registered clients. Incoming calls reached the modem (CSFB to 2G, a registered raw QMI client saw
+SETUP/INCOMING/END) but never ofono. With the registration (TLV 0x13 call notification events)
+calls ring awake and from suspend. Built as ofono 2.12.0+git4-2 from src/ofono-212 (patch applied
+in the tree, Release 2).

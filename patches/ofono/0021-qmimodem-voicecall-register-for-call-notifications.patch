@@ -1,0 +1,60 @@
+From: moWerk <mo@mowerk.net>
+Subject: [PATCH] qmimodem: voicecall: register for call notifications
+
+The QMI voice driver only listens for ALL CALL STATUS indications and
+relies on the modem sending them to every client. The F(x)tec Pro1-X
+modem (MPSS.HA.1.1 with its carrier MCFG) sends them only to clients
+that registered for call notification events: a raw QMI client that
+registered (VOICE INDICATION REGISTER, TLV 0x13) saw an incoming call go
+through SETUP, INCOMING and END, an unregistered one and ofono saw
+nothing, so the phone never rang. Register at probe, as ModemManager
+does.
+
+Tested on the Pro1-X (SailfishOS 5.2, mainline 7.3): incoming calls ring
+and can be answered, with the screen on and from suspend.
+
+---
+diff --git a/drivers/qmimodem/voice.h b/drivers/qmimodem/voice.h
+index 2c078137..835b99b9 100644
+--- a/drivers/qmimodem/voice.h
++++ b/drivers/qmimodem/voice.h
+@@ -39,6 +39,7 @@ enum qmi_ussd_user_required {
+ /* QMI service voice. Using an enum to prevent doublicated entries */
+ enum voice_commands {
+ 	QMI_VOICE_DIAL_CALL =			0x20,
++	QMI_VOICE_INDICATION_REGISTER =		0x03,
+ 	QMI_VOICE_ALL_CALL_STATUS_IND =		0x2e,
+ 	QMI_VOICE_GET_ALL_CALL_INFO =		0x2f,
+ 	QMI_VOICE_END_CALL =			0x21,
+diff --git a/drivers/qmimodem/voicecall.c b/drivers/qmimodem/voicecall.c
+index fe27502c..aa4ce46b 100644
+--- a/drivers/qmimodem/voicecall.c
++++ b/drivers/qmimodem/voicecall.c
+@@ -726,6 +726,7 @@ static int qmi_voicecall_probe(struct ofono_voicecall *vc,
+ {
+ 	struct qmi_service *voice = user_data;
+ 	struct voicecall_data *data;
++	struct qmi_param *param;
+ 
+ 	DBG("");
+ 
+@@ -736,6 +737,19 @@ static int qmi_voicecall_probe(struct ofono_voicecall *vc,
+ 	qmi_service_register(data->voice, QMI_VOICE_ALL_CALL_STATUS_IND,
+ 				all_call_status_ind, vc, NULL);
+ 
++	/*
++	 * Ask for call notifications explicitly (INDICATION REGISTER, TLV 0x13
++	 * "call notification events"). Some modems send ALL CALL STATUS only to
++	 * clients that registered for them: on the F(x)tec Pro1-X (MPSS.HA.1.1 with
++	 * its carrier MCFG) an incoming call reached a registered QMI client but
++	 * never ofono, so the phone did not ring. ModemManager registers the same way.
++	 */
++	param = qmi_param_new();
++	qmi_param_append_uint8(param, 0x13, 1);
++	if (!qmi_service_send(data->voice, QMI_VOICE_INDICATION_REGISTER, param,
++				NULL, NULL, NULL))
++		qmi_param_free(param);
++
+ 	ofono_voicecall_set_data(vc, data);
+ 
+ 	//Get a handle to the modem serial interface to detect RING signals
