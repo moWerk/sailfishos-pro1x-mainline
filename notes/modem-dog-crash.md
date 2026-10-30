@@ -1,6 +1,6 @@
 # Modem watchdog crash at boot ("DOG detects stalled initialization")
 
-Status 2026-10-30: **cause found, fix not yet applied.** A race in the QRTR HELLO
+Status 2026-10-30 09:00: **fixed by kernel patch 0029**: 8 of 8 boots free of the announcement failure and the DOG crash (12 of 25 before). Still to check: the crashes seen hours into a session. Original status: cause found. A race in the QRTR HELLO
 handshake that Linux 7.3 introduced: when it hits, the kernel name service never tells the
 modem about the AP's services (rmtfs among them), the modem waits for them and its watchdog
 fires 40 s later. It recovers by itself on a later start, but every failed start delays
