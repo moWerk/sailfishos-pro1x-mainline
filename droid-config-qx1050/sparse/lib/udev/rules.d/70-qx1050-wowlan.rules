@@ -1,0 +1,5 @@
+# Wake-on-WLAN for the ath10k (WCN3950). Without it cfg80211 disconnects Wi-Fi before every system
+# suspend; connman then woke the phone about once a minute to reconnect and rescan, and nothing could
+# reach the phone while it slept. With WoWLAN the firmware keeps the association through s2idle and
+# wakes the phone when the AP drops it (disconnect) or on a magic packet (notes/sleep.md, 2026-10-30).
+ACTION=="add", SUBSYSTEM=="ieee80211", RUN+="/usr/sbin/iw phy %k wowlan enable disconnect magic-packet"

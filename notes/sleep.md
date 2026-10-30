@@ -56,3 +56,25 @@ holders of bi_tcxo/xo, interconnect sleep votes; then MPM + rpm-master-stats in 
   and read the QG's sleep samples after resume as the downstream qpnp-qg does.
 - Since 14:59 wanze (a-d-b-wanze: one sample per awake moment, timer never wakes the phone)
   logs to /var/log/wanze.csv with the wakeup source column on.
+
+## The minute wake: connman, Wi-Fi without WoWLAN (2026-10-30 evening)
+
+- Kernel timestamps: a wake at second :11-:12 of every minute, suspend again 5 s later. dsme's
+  iphb (debug: `dsmetool -l 7 -i "iphb*:*"`) names the client: connmand asks for a wakeup every
+  54-59 s with the wakeup flag; mce only while the display is on, dsme's own clients do not wake.
+- Wi-Fi had no Wake-on-WLAN, so cfg80211 disconnected before every suspend ("deauthenticating
+  ... by local choice") and connman kept reconnecting and scanning. ath10k on the WCN3950
+  offers WoWLAN (disconnect, magic packet, patterns, net detect); `70-qx1050-wowlan.rules`
+  now enables disconnect + magic-packet. The association survives suspend and sleeps of
+  3-12 minutes appear.
+- What is left of the rhythm comes from connman's sailfish_wifi autoscan: every autoscan arms
+  a 5 s hold-off as a wakeup timer (`connman_wakeup_timer_add_seconds(WIFI_AUTOSCAN_MIN_SEC)`),
+  the phone suspends after 5 s, and iphb's 30 s grain turns the hold-off into a wake about a
+  minute later, which can start the next scan. A hold-off has no reason to wake the system:
+  a plain g_timeout would do (connman patch, not done). The 300 s autoscan itself also wakes.
+- The FritzBox drops the sleeping phone every 10-15 min (Reason 7 CLASS3_FRAME_FROM_NONASSOC_STA,
+  once Reason 6): the AP times the station out, the firmware apparently sends no keepalive in
+  WoW. Each drop wakes the phone (disconnect trigger) and costs a reconnect. Open.
+- Restarting connman to enable debug: SIGUSR2 is not a debug toggle in this connmand, it
+  killed it (systemd restarted it). Debug per file instead: `CONNMAN_ARGS=-d <files>` in
+  /var/lib/environment/connman/*.conf.
