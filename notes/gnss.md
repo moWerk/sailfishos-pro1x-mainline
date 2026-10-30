@@ -64,6 +64,31 @@ at a time (GPS 21 at 23-30 dB-Hz, later GPS 30 at 18-25), no fix in 12 min. Hybr
 same spot, so the signal level is the next question (all constellations enabled? the other
 Pro1-X's antenna?), together with assistance (XTRA, time, position).
 
+## Hot start versus cold start; rmtfs now keeps the EFS (2026-10-30)
+
+GPSInfo on the hybris Pro1-X: 5 of 35 satellites within seconds, fix in 10-20 s. That is a
+hot start: its modem keeps orbits, almanac and last position in its EFS (modemst1/2) across
+boots. Mainline ran rmtfs read-only (`-r -P`), so the modem's EFS writes lived only in rmtfs's
+memory and every boot was a true cold start; with this antenna that means 1-2 satellites at a
+time (best GLONASS 5 at 34 dB-Hz off the charger, the charger seemed to cost a few dB) and no
+fix in 50 minutes. rmtfs now serves files in /var/lib/rmtfs (root only), seeded once from
+the partitions, which stay read-only (`droid-config-qx1050/sparse/etc/systemd/system/rmtfs.service.d/`,
+`qx1050-rmtfs-seed.sh`).
+
+Assistance on this modem (MPSS.HA.1.1-00140):
+- INJECT PREDICTED ORBITS DATA (0x35): QMI error 94, not supported. INJECT XTRA DATA (0xA7):
+  every part accepted, the last part's indication reports status 1 (general failure) with the
+  version check off or XTRA3, and GET PREDICTED ORBITS DATA VALIDITY then says nothing is valid.
+  The hybris HAL's own XTRA download fails too (DNS), so XTRA is not what makes hybris fast.
+  Still open.
+- INJECT UTC TIME (0x38) unrequested right after the client starts: status 1. The modem has
+  not sent an INJECT TIME REQUEST in any session (it gets time from the network).
+- DELETE ASSIST DATA (0x44) and DELETE GNSS SERVICE DATA (0xA6) with "delete all": QMI error
+  0x73 on the hybris modem while its HAL runs; a cold-start comparison there is still open.
+- `scripts/qmi-loc-assist.py` is the session tool (assistance on the modem's requests,
+  satellites per system with SNR); `scripts/qmi-loc-coldstart.py` finds the LOC service without
+  qrtr-lookup and tries the deletes.
+
 ## What SailfishOS offers
 
 - geoclue 0.12 (Jolla's) with providers; Jolla's own GPS provider is
