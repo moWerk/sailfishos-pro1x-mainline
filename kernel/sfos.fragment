@@ -74,3 +74,6 @@ CONFIG_V4L2_FLASH_LED_CLASS=m
 # sensor framework that the AP sleeps (kernel patches 0032-0034, from the TB-J606L port)
 CONFIG_PM_AUTOSLEEP=y
 CONFIG_QCOM_SMP2P_SLEEPSTATE=m
+
+# Which RPM master blocks XO shutdown (debugfs qcom_rpm_master_stats/; DT node in the pro1x dts)
+CONFIG_QCOM_RPM_MASTER_STATS=m
