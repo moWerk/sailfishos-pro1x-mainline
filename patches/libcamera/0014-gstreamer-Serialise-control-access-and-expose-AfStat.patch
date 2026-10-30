@@ -1,0 +1,89 @@
+From ababe7183d020612290da17f0eb292e89d9f8769 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Fri, 30 Oct 2026 00:58:29 +0100
+Subject: [PATCH 14/15] gstreamer: Serialise control access and expose AfState
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The control list is filled by set_property under the object lock and
+emptied into requests by queueRequest under the stream lock, and the
+metadata accumulator is written on request completion under lock_ and
+read by get_property under the object lock. Setting a control while the
+camera streams can therefore corrupt the list. Take lock_, which is
+never held while another lock is taken, around all four.
+
+AfState is exposed as af-state so that an application can wait for a
+focus scan to settle.
+
+Disclosure: LLMGD-2 · origin O1 (author asked for tap to focus on the camera and tested it in jolla-camera, the model wrote the code)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=libcamera; graded-by=model; retrieval=none
+---
+ src/gstreamer/gstlibcamerasrc.cpp | 15 +++++++++++----
+ utils/codegen/gen-gst-controls.py |  2 +-
+ 2 files changed, 12 insertions(+), 5 deletions(-)
+
+diff --git a/src/gstreamer/gstlibcamerasrc.cpp b/src/gstreamer/gstlibcamerasrc.cpp
+index 9061f916..b87704a7 100644
+--- a/src/gstreamer/gstlibcamerasrc.cpp
++++ b/src/gstreamer/gstlibcamerasrc.cpp
+@@ -186,8 +186,11 @@ int GstLibcameraSrcState::queueRequest()
+ 	if (!request)
+ 		return -ENOMEM;
+ 
+-	/* Apply controls */
+-	controls_.applyControls(request);
++	/* Apply controls, set and read under lock_ from other threads */
++	{
++		GLibLocker locker(&lock_);
++		controls_.applyControls(request);
++	}
+ 
+ 	std::unique_ptr<RequestWrap> wrap =
+ 		std::make_unique<RequestWrap>(std::move(request));
+@@ -990,11 +993,13 @@ gst_libcamera_src_set_property(GObject *object, guint prop_id,
+ 		g_clear_pointer(&self->sensor_config, gst_structure_free);
+ 		self->sensor_config = (GstStructure *)g_value_dup_boxed(value);
+ 		break;
+-	default:
++	default: {
++		GLibLocker locker(&state->lock_);
+ 		if (!state->controls_.setProperty(prop_id - PROP_LAST, value, pspec))
+ 			G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
+ 		break;
+ 	}
++	}
+ }
+ 
+ static void
+@@ -1012,11 +1017,13 @@ gst_libcamera_src_get_property(GObject *object, guint prop_id, GValue *value,
+ 	case PROP_SENSOR_CONFIG:
+ 		g_value_set_boxed(value, self->sensor_config);
+ 		break;
+-	default:
++	default: {
++		GLibLocker locker(&state->lock_);
+ 		if (!state->controls_.getProperty(prop_id - PROP_LAST, value, pspec))
+ 			G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
+ 		break;
+ 	}
++	}
+ }
+ 
+ static GstStateChangeReturn
+diff --git a/utils/codegen/gen-gst-controls.py b/utils/codegen/gen-gst-controls.py
+index 31f18625..8d297f67 100755
+--- a/utils/codegen/gen-gst-controls.py
++++ b/utils/codegen/gen-gst-controls.py
+@@ -25,7 +25,7 @@ exposed_controls = [
+     'Brightness', 'Contrast', 'AwbEnable', 'AwbMode', 'ColourGains',
+     'Saturation', 'Sharpness', 'ColourCorrectionMatrix', 'ScalerCrop',
+     'DigitalGain', 'AfMode', 'AfRange', 'AfSpeed', 'AfMetering', 'AfWindows',
+-    'LensPosition', 'Gamma',
++    'LensPosition', 'Gamma', 'AfState',
+ ]
+ 
+ 
+-- 
+2.56.0
+

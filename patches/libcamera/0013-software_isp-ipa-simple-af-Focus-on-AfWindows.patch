@@ -1,0 +1,401 @@
+From 3670dd0020af17bdea5cbea3465ff12064c20596 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Fri, 30 Oct 2026 00:53:46 +0100
+Subject: [PATCH 13/15] software_isp: ipa: simple: af: Focus on AfWindows
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The software ISP maps the first AfWindows rectangle from pixel array to
+input frame coordinates and moves the statistics' sharpness area there
+(an empty list restores the default centre window). The Af algorithm
+registers AfMode, AfMetering and AfWindows and restarts the scan when
+the window changes, which gives tap to focus without an AfTrigger.
+
+Disclosure: LLMGD-2 · origin O1 (author asked for tap to focus and ISO on the camera and tested both in jolla-camera, the model wrote the code)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=libcamera; graded-by=model; retrieval=none
+---
+ .../internal/software_isp/software_isp.h      |  4 ++
+ .../internal/software_isp/swstats_cpu.h       | 11 +++-
+ src/ipa/libipa/af.cpp                         | 21 +++++++
+ src/ipa/libipa/af.h                           |  1 +
+ src/ipa/simple/algorithms/af.cpp              | 35 +++++++++++-
+ src/ipa/simple/algorithms/af.h                |  5 ++
+ src/libcamera/software_isp/debayer.h          |  3 +
+ src/libcamera/software_isp/debayer_cpu.h      |  1 +
+ src/libcamera/software_isp/debayer_egl.h      |  1 +
+ src/libcamera/software_isp/software_isp.cpp   | 34 +++++++++++
+ src/libcamera/software_isp/swstats_cpu.cpp    | 56 +++++++++++++++++++
+ 11 files changed, 170 insertions(+), 2 deletions(-)
+
+diff --git a/include/libcamera/internal/software_isp/software_isp.h b/include/libcamera/internal/software_isp/software_isp.h
+index bf2cfea4..9a1e8816 100644
+--- a/include/libcamera/internal/software_isp/software_isp.h
++++ b/include/libcamera/internal/software_isp/software_isp.h
+@@ -95,6 +95,10 @@ private:
+ 	void inputReady(FrameBuffer *input);
+ 	void outputReady(FrameBuffer *output);
+ 	std::unique_ptr<Debayer> debayer_;
++	/* Pixel array area the sensor outputs and its size, to map AfWindows */
++	const CameraSensor *sensor_;
++	Rectangle afCrop_;
++	Size afFrame_;
+ 	Thread ispWorkerThread_;
+ 	SharedMemObject<DebayerParams> sharedParams_;
+ 	DebayerParams debayerParams_;
+diff --git a/include/libcamera/internal/software_isp/swstats_cpu.h b/include/libcamera/internal/software_isp/swstats_cpu.h
+index 2b233524..0f4d1ac3 100644
+--- a/include/libcamera/internal/software_isp/swstats_cpu.h
++++ b/include/libcamera/internal/software_isp/swstats_cpu.h
+@@ -11,6 +11,9 @@
+ 
+ #pragma once
+ 
++#include <mutex>
++#include <optional>
++
+ #include <stdint.h>
+ #include <vector>
+ 
+@@ -46,6 +49,7 @@ public:
+ 
+ 	int configure(const StreamConfiguration &inputCfg, unsigned int statsBufferCount = 1);
+ 	void setWindow(const Rectangle &window);
++	void setSharpnessArea(const Rectangle &area);
+ 	bool updating(uint32_t frame);
+ 	void startFrame(uint32_t frame);
+ 	void finishFrame(uint32_t frame, uint32_t bufferId);
+@@ -115,6 +119,7 @@ private:
+ 	}
+ 
+ 	void processBayerFrame2(MappedFrameBuffer &in);
++	void applySharpnessArea(const Rectangle &area);
+ 
+ 	processFrameFn processFrame_;
+ 
+@@ -126,8 +131,12 @@ private:
+ 	unsigned int ySkipMask_;
+ 
+ 	Rectangle window_;
+-	/* Central part of window_ used for the autofocus sharpness */
++	/* Part of window_ used for the autofocus sharpness (default: the central third) */
+ 	Rectangle sharpnessWindow_;
++	Rectangle defaultSharpnessWindow_;
++	/* Requested by setSharpnessArea(), taken over at the next startFrame() */
++	std::mutex areaLock_;
++	std::optional<Rectangle> pendingArea_;
+ 	statsProcessFn sharpness_ = nullptr;
+ 
+ 	Size patternSize_;
+diff --git a/src/ipa/libipa/af.cpp b/src/ipa/libipa/af.cpp
+index 382ae48a..d4ce3f09 100644
+--- a/src/ipa/libipa/af.cpp
++++ b/src/ipa/libipa/af.cpp
+@@ -191,6 +191,27 @@ bool AfAlgorithm::afScan(af::ActiveState &state, int min_step)
+  * \brief Determine the frame to be ignored
+  * \return Return True if the frame should be ignored, false otherwise
+  */
++/**
++ * \brief Start a new scan from the near end
++ * \param[in] state The autofocus state
++ *
++ * Used when the focus area changes, for instance on a tap to focus. Unlike
++ * the internal reset after a scene change it does not wait for the ignore
++ * counter, the new scan begins after the configured number of ignored frames.
++ */
++void AfAlgorithm::restart(af::ActiveState &state)
++{
++	state.maxVariance = 0;
++	state.focus = 0;
++	focus_ = 0;
++	state.stable = false;
++	ignoreCounter_ = params_.ignoreFrames;
++	previousVariance_ = 0.0;
++	coarseCompleted_ = false;
++	fineCompleted_ = false;
++	maxStep_ = initMaxStep_;
++}
++
+ bool AfAlgorithm::afNeedIgnoreFrame()
+ {
+ 	if (ignoreCounter_ == 0)
+diff --git a/src/ipa/libipa/af.h b/src/ipa/libipa/af.h
+index 3a8cec7b..912b8fb9 100644
+--- a/src/ipa/libipa/af.h
++++ b/src/ipa/libipa/af.h
+@@ -45,6 +45,7 @@ public:
+ 	void configure(af::ActiveState &state, const ControlInfoMap &lensControls);
+ 	void process(af::ActiveState &state, double variance);
+ 	bool coarseCompleted() { return coarseCompleted_; }
++	void restart(af::ActiveState &state);
+ 
+ private:
+ 	void afCoarseScan(af::ActiveState &af);
+diff --git a/src/ipa/simple/algorithms/af.cpp b/src/ipa/simple/algorithms/af.cpp
+index 45d38b5d..8a708384 100644
+--- a/src/ipa/simple/algorithms/af.cpp
++++ b/src/ipa/simple/algorithms/af.cpp
+@@ -33,6 +33,17 @@ int Af::init(IPAContext &context, const ValueNode &tuningData)
+ 	/* Informs that lens controls can get focus data */
+ 	context.afEnabled = true;
+ 
++	/*
++	 * The scan runs continuously on the sharpness area; AfWindows moves that
++	 * area (mapped to the frame by the software ISP) and restarts the scan.
++	 */
++	context.ctrlMap[&controls::AfMode] =
++		ControlInfo(controls::AfModeValues, controls::AfModeContinuous);
++	context.ctrlMap[&controls::AfMetering] =
++		ControlInfo(controls::AfMeteringValues, controls::AfMeteringAuto);
++	context.ctrlMap[&controls::AfWindows] =
++		ControlInfo(Rectangle{}, Rectangle(0, 0, 65535, 65535), Rectangle{});
++
+ 	return 0;
+ }
+ 
+@@ -43,11 +54,29 @@ int Af::configure(IPAContext &context, const IPAConfigInfo &configInfo)
+ 	return 0;
+ }
+ 
++void Af::queueRequest(IPAContext &context,
++		      [[maybe_unused]] const uint32_t frame,
++		      [[maybe_unused]] IPAFrameContext &frameContext,
++		      const ControlList &controls)
++{
++	const auto &windows = controls.get(controls::AfWindows);
++	if (!windows)
++		return;
++
++	const Rectangle window = windows->empty() ? Rectangle() : (*windows)[0];
++	if (window == window_)
++		return;
++
++	window_ = window;
++	LOG(IPASoftAf, Debug) << "Focus window " << window_ << ", rescanning";
++	afAlgo_.restart(context.activeState.af);
++}
++
+ void Af::process(IPAContext &context,
+ 		 [[maybe_unused]] const uint32_t frame,
+ 		 [[maybe_unused]] IPAFrameContext &frameContext,
+ 		 const SwIspStats *stats,
+-		 [[maybe_unused]] ControlList &metadata)
++		 ControlList &metadata)
+ {
+ 	/* The stats are computed every few frames only */
+ 	if (!stats->valid || !stats->varianceSamples)
+@@ -56,6 +85,10 @@ void Af::process(IPAContext &context,
+ 	const double variance = stats->variance;
+ 	LOG(IPASoftAf, Debug) << "Focus stats: " << variance;
+ 	afAlgo_.process(context.activeState.af, variance);
++
++	metadata.set(controls::AfState, context.activeState.af.stable
++					? controls::AfStateFocused
++					: controls::AfStateScanning);
+ }
+ 
+ REGISTER_IPA_ALGORITHM(Af, "Af")
+diff --git a/src/ipa/simple/algorithms/af.h b/src/ipa/simple/algorithms/af.h
+index 9b04ad2c..a0a662bb 100644
+--- a/src/ipa/simple/algorithms/af.h
++++ b/src/ipa/simple/algorithms/af.h
+@@ -25,6 +25,9 @@ public:
+ 	int init(IPAContext &context, const ValueNode &tuningData) override;
+ 	int configure(IPAContext &context,
+ 		      const IPAConfigInfo &configInfo) override;
++	void queueRequest(IPAContext &context, const uint32_t frame,
++			  IPAFrameContext &frameContext,
++			  const ControlList &controls) override;
+ 	void process(IPAContext &context, const uint32_t frame,
+ 		     IPAFrameContext &frameContext,
+ 		     const SwIspStats *stats,
+@@ -32,6 +35,8 @@ public:
+ 
+ private:
+ 	AfAlgorithm afAlgo_;
++	/* The last requested focus window, a change restarts the scan */
++	Rectangle window_;
+ };
+ 
+ } /* namespace ipa::soft::algorithms */
+diff --git a/src/libcamera/software_isp/debayer.h b/src/libcamera/software_isp/debayer.h
+index 28f1b857..f1c232ce 100644
+--- a/src/libcamera/software_isp/debayer.h
++++ b/src/libcamera/software_isp/debayer.h
+@@ -56,6 +56,9 @@ public:
+ 
+ 	virtual const SharedFD &getStatsFD() = 0;
+ 
++	/* Autofocus sharpness area in input frame coordinates, empty for the default */
++	virtual void setSharpnessArea(const Rectangle &area) = 0;
++
+ 	unsigned int frameSize() { return outputConfig_.frameSize; }
+ 
+ 	Signal<FrameBuffer *> inputBufferReady;
+diff --git a/src/libcamera/software_isp/debayer_cpu.h b/src/libcamera/software_isp/debayer_cpu.h
+index 5281c65c..b99c9373 100644
+--- a/src/libcamera/software_isp/debayer_cpu.h
++++ b/src/libcamera/software_isp/debayer_cpu.h
+@@ -47,6 +47,7 @@ public:
+ 	void stop() override;
+ 	SizeRange sizes(PixelFormat inputFormat, const Size &inputSize) override;
+ 	const SharedFD &getStatsFD() override { return stats_->getStatsFD(); }
++	void setSharpnessArea(const Rectangle &area) override { stats_->setSharpnessArea(area); }
+ 
+ private:
+ 	friend class DebayerCpuThread;
+diff --git a/src/libcamera/software_isp/debayer_egl.h b/src/libcamera/software_isp/debayer_egl.h
+index d6223f3a..b752bb59 100644
+--- a/src/libcamera/software_isp/debayer_egl.h
++++ b/src/libcamera/software_isp/debayer_egl.h
+@@ -58,6 +58,7 @@ public:
+ 	void stop() override;
+ 
+ 	const SharedFD &getStatsFD() override { return stats_->getStatsFD(); }
++	void setSharpnessArea(const Rectangle &area) override { stats_->setSharpnessArea(area); }
+ 
+ 	SizeRange sizes(PixelFormat inputFormat, const Size &inputSize) override;
+ 
+diff --git a/src/libcamera/software_isp/software_isp.cpp b/src/libcamera/software_isp/software_isp.cpp
+index 703b943b..74784953 100644
+--- a/src/libcamera/software_isp/software_isp.cpp
++++ b/src/libcamera/software_isp/software_isp.cpp
+@@ -7,6 +7,8 @@
+ 
+ #include "libcamera/internal/software_isp/software_isp.h"
+ 
++#include <libcamera/control_ids.h>
++
+ #include <memory>
+ #include <optional>
+ #include <stdint.h>
+@@ -86,6 +88,7 @@ SoftwareIsp::SoftwareIsp(PipelineHandler *pipe, const CameraSensor *sensor,
+ 		   DmaBufAllocator::DmaBufAllocatorFlag::SystemHeap |
+ 		   DmaBufAllocator::DmaBufAllocatorFlag::UDmaBuf)
+ {
++	sensor_ = sensor;
+ 	if (!dmaHeap_.isValid()) {
+ 		LOG(SoftwareIsp, Error) << "Failed to create DmaBufAllocator object";
+ 		return;
+@@ -296,6 +299,15 @@ int SoftwareIsp::configure(const StreamConfiguration &inputCfg,
+ 	if (ret < 0)
+ 		return ret;
+ 
++	IPACameraSensorInfo info{};
++	if (sensor_ && !sensor_->sensorInfo(&info)) {
++		afCrop_ = info.analogCrop;
++		afFrame_ = inputCfg.size;
++	} else {
++		afCrop_ = Rectangle();
++		afFrame_ = Size();
++	}
++
+ 	LOG(SoftwareIsp, Info)
+ 		<< "Input " << inputCfg.size
+ 		<< "-" << BayerFormat::fromPixelFormat(inputCfg.pixelFormat)
+@@ -331,6 +343,28 @@ int SoftwareIsp::exportBuffers(const Stream *stream, unsigned int count,
+  */
+ void SoftwareIsp::queueRequest(const uint32_t frame, const ControlList &controls)
+ {
++	/*
++	 * AfWindows are in pixel array coordinates; the autofocus sharpness is
++	 * computed on the input frame, which shows the sensor's analogue crop
++	 * (scaled by binning). The first window is used; none restores the default.
++	 */
++	const auto &afWindows = controls.get(controls::AfWindows);
++	if (afWindows && debayer_ && !afCrop_.isNull() && !afFrame_.isNull()) {
++		Rectangle area;
++		if (!afWindows->empty()) {
++			const Rectangle &w = (*afWindows)[0];
++			const double sx = static_cast<double>(afFrame_.width) / afCrop_.width;
++			const double sy = static_cast<double>(afFrame_.height) / afCrop_.height;
++			area = Rectangle(static_cast<int>((w.x - afCrop_.x) * sx),
++					 static_cast<int>((w.y - afCrop_.y) * sy),
++					 static_cast<unsigned int>(w.width * sx),
++					 static_cast<unsigned int>(w.height * sy));
++			if (area.x < 0 || area.y < 0)
++				area = Rectangle();
++		}
++		debayer_->setSharpnessArea(area);
++	}
++
+ 	ipa_->queueRequest(frame, controls);
+ }
+ 
+diff --git a/src/libcamera/software_isp/swstats_cpu.cpp b/src/libcamera/software_isp/swstats_cpu.cpp
+index 3a19e983..1a10dc80 100644
+--- a/src/libcamera/software_isp/swstats_cpu.cpp
++++ b/src/libcamera/software_isp/swstats_cpu.cpp
+@@ -417,6 +417,14 @@ void SwStatsCpu::startFrame(uint32_t frame)
+ 	if (window_.width == 0)
+ 		LOG(SwStatsCpu, Error) << "Calling startFrame() without setWindow()";
+ 
++	{
++		std::lock_guard<std::mutex> lock(areaLock_);
++		if (pendingArea_) {
++			applySharpnessArea(*pendingArea_);
++			pendingArea_.reset();
++		}
++	}
++
+ 	for (auto &s : stats_) {
+ 		s.sum_ = RGB<uint64_t>({ 0, 0, 0 });
+ 		s.variance = 0.0;
+@@ -622,6 +630,54 @@ void SwStatsCpu::setWindow(const Rectangle &window)
+ 	sharpnessWindow_.y = (window_.y + window_.height / 3) & ~1;
+ 	sharpnessWindow_.width = (window_.width / 3) & ~3;
+ 	sharpnessWindow_.height = (window_.height / 3) & ~1;
++	defaultSharpnessWindow_ = sharpnessWindow_;
++}
++
++/**
++ * \brief Set the area used for the autofocus sharpness
++ * \param[in] area The area in frame coordinates, empty for the default (the
++ * central third of the statistics window)
++ *
++ * May be called from any thread; the area is taken over at the start of the
++ * next frame for which statistics are gathered, clipped to the statistics
++ * window and aligned like the default.
++ */
++void SwStatsCpu::setSharpnessArea(const Rectangle &area)
++{
++	std::lock_guard<std::mutex> lock(areaLock_);
++	pendingArea_ = area;
++}
++
++void SwStatsCpu::applySharpnessArea(const Rectangle &area)
++{
++	static constexpr unsigned int kMinWidth = 64;
++	static constexpr unsigned int kMinHeight = 32;
++
++	if (area.isNull() || window_.width == 0) {
++		sharpnessWindow_ = defaultSharpnessWindow_;
++		return;
++	}
++
++	/* Grow small areas around their centre, then clip to the window */
++	Rectangle r = area;
++	if (r.width < kMinWidth) {
++		r.x -= (kMinWidth - r.width) / 2;
++		r.width = kMinWidth;
++	}
++	if (r.height < kMinHeight) {
++		r.y -= (kMinHeight - r.height) / 2;
++		r.height = kMinHeight;
++	}
++	r = r.boundedTo(window_);
++	if (r.width < kMinWidth || r.height < kMinHeight) {
++		sharpnessWindow_ = defaultSharpnessWindow_;
++		return;
++	}
++
++	sharpnessWindow_.x = r.x & ~3;
++	sharpnessWindow_.y = r.y & ~1;
++	sharpnessWindow_.width = r.width & ~3;
++	sharpnessWindow_.height = r.height & ~1;
+ }
+ 
+ void SwStatsCpu::processBayerFrame2(MappedFrameBuffer &in)
+-- 
+2.56.0
+

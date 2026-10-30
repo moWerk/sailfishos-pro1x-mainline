@@ -1,0 +1,556 @@
+From 6a77611c976884293a4f71518af0f27544b4362d Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Fri, 30 Oct 2026 02:23:10 +0100
+Subject: [PATCH 12/13] camerabin: tap to focus, ISO and exposure compensation
+ on libcamerasrc, Release 13
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Without GstPhotography there were no focus, locks or exposure controls,
+so jolla-camera offered neither tap to focus nor ISO. With libcamerasrc
+inside the wrapper source they now work through its control properties:
+
+- focus: the tapped area goes to af-windows (mapped from the viewfinder
+  to pixel array coordinates through PixelArrayActiveAreas, assuming the
+  software ISP's centred crop); a lock rescans and stays Searching until
+  af-state reports the new scan as focused, 8 s at most. With the flash
+  set to on, the LED lights the scan as a focus assist.
+- exposure: ISO 100 to 3200 as manual analogue gain (gain 1 = ISO 100),
+  automatic ISO as auto gain, compensation as exposure-value.
+
+The active area is read once per camera from libcamera's device
+provider inside the plugin; a new gsttools symbol would not link against
+the SDK target's installed library.
+
+Disclosure: LLMGD-2 · origin O1 (author asked for tap to focus and ISO as on official ports and tested both in jolla-camera, the model wrote the code)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=qtmultimedia; graded-by=model; retrieval=none
+---
+ rpm/qtmultimedia.spec                         |   2 +-
+ .../gstreamer/camerabin/camerabinexposure.cpp |  82 +++++++-
+ .../gstreamer/camerabin/camerabinexposure.h   |   9 +
+ .../gstreamer/camerabin/camerabinfocus.cpp    | 193 +++++++++++++++++-
+ .../gstreamer/camerabin/camerabinfocus.h      |  13 ++
+ .../gstreamer/camerabin/camerabinsession.cpp  |  14 +-
+ .../gstreamer/camerabin/camerabinsession.h    |   3 +
+ 7 files changed, 308 insertions(+), 8 deletions(-)
+
+diff --git a/rpm/qtmultimedia.spec b/rpm/qtmultimedia.spec
+index ed1dc0ea..884693b8 100644
+--- a/rpm/qtmultimedia.spec
++++ b/rpm/qtmultimedia.spec
+@@ -1,7 +1,7 @@
+ Name:       qt5-qtmultimedia
+ Summary:    Qt Multimedia module
+ Version:    5.6.2+v4l.20261024000000.qx1050
+-Release:    12%{?dist}
++Release:    13%{?dist}
+ License:    (LGPLv2 or LGPLv3) with exception or GPLv3 or Qt Commercial
+ URL:        https://www.qt.io/
+ Source0:    %{name}-%{version}.tar.bz2
+diff --git a/src/plugins/gstreamer/camerabin/camerabinexposure.cpp b/src/plugins/gstreamer/camerabin/camerabinexposure.cpp
+index a9e1d612..13a28439 100644
+--- a/src/plugins/gstreamer/camerabin/camerabinexposure.cpp
++++ b/src/plugins/gstreamer/camerabin/camerabinexposure.cpp
+@@ -45,8 +45,13 @@ QT_BEGIN_NAMESPACE
+ 
+ CameraBinExposure::CameraBinExposure(CameraBinSession *session)
+     :QCameraExposureControl(session),
+-     m_session(session)
++     m_session(session),
++     m_libcamera(!session->photography())
+ {
++    if (m_libcamera)
++        connect(m_session, SIGNAL(statusChanged(QCamera::Status)),
++                this, SLOT(applyLibcameraValues(QCamera::Status)));
++
+     if (m_session->photography()) {
+         m_mappedExposureValues[GST_PHOTOGRAPHY_SCENE_MODE_MANUAL] = QCameraExposure::ExposureManual;
+         m_mappedExposureValues[GST_PHOTOGRAPHY_SCENE_MODE_AUTO] = QCameraExposure::ExposureAuto;
+@@ -81,6 +86,10 @@ CameraBinExposure::~CameraBinExposure()
+ 
+ bool CameraBinExposure::isParameterSupported(ExposureParameter parameter) const
+ {
++    if (m_libcamera)
++        return parameter == QCameraExposureControl::ExposureCompensation
++                || parameter == QCameraExposureControl::ISO;
++
+     switch (parameter) {
+     case QCameraExposureControl::ExposureCompensation:
+     case QCameraExposureControl::ISO:
+@@ -110,6 +119,10 @@ QVariantList CameraBinExposure::supportedParameterRange(ExposureParameter parame
+         res << -2.0 << 2.0;
+         break;
+     case QCameraExposureControl::ISO:
++        if (m_libcamera) {
++            res << 100 << 200 << 400 << 800 << 1600 << 3200;
++            break;
++        }
+ #ifdef HAVE_GST_PHOTOGRAPHY
+         if (G_IS_OBJECT(m_session->cameraSource()) &&
+                 G_IS_OBJECT_CLASS(G_OBJECT_GET_CLASS(G_OBJECT(m_session->cameraSource()))) &&
+@@ -174,6 +187,24 @@ QVariant CameraBinExposure::requestedValue(ExposureParameter parameter) const
+ 
+ QVariant CameraBinExposure::actualValue(ExposureParameter parameter) const
+ {
++    if (m_libcamera) {
++        if (parameter == QCameraExposureControl::ExposureCompensation)
++            return m_requestedValues.value(parameter, QVariant(0.0));
++        if (parameter == QCameraExposureControl::ISO) {
++            if (m_requestedValues.value(parameter).toInt() > 0)
++                return m_requestedValues.value(parameter);
++            gfloat gain = 0;
++            if (GstElement *source = libcameraSource())
++                g_object_get(G_OBJECT(source), "analogue-gain", &gain, NULL);
++            return gain > 0 ? QVariant(int(gain * 100 + 0.5)) : QVariant();
++        }
++        if (parameter == QCameraExposureControl::ExposureMode)
++            return QVariant::fromValue(QCameraExposure::ExposureAuto);
++        if (parameter == QCameraExposureControl::MeteringMode)
++            return QCameraExposure::MeteringMatrix;
++        return QVariant();
++    }
++
+     switch (parameter) {
+     case QCameraExposureControl::ExposureCompensation:
+     {
+@@ -264,6 +295,22 @@ bool CameraBinExposure::setValue(ExposureParameter parameter, const QVariant& va
+ {
+     QVariant oldValue = actualValue(parameter);
+ 
++    if (m_libcamera) {
++        if (parameter == QCameraExposureControl::ExposureMode)
++            return value.value<QCameraExposure::ExposureMode>() == QCameraExposure::ExposureAuto;
++        if (!isParameterSupported(parameter))
++            return false;
++        // an invalid value selects automatic ISO or no compensation
++        if (m_requestedValues.value(parameter) != value) {
++            m_requestedValues[parameter] = value;
++            emit requestedValueChanged(parameter);
++        }
++        setLibcameraValue(parameter, value);
++        if (actualValue(parameter) != oldValue)
++            emit actualValueChanged(parameter);
++        return true;
++    }
++
+     switch (parameter) {
+     case QCameraExposureControl::ExposureCompensation:
+         gst_photography_set_ev_compensation(m_session->photography(), value.toReal());
+@@ -377,4 +424,37 @@ bool CameraBinExposure::setValue(ExposureParameter parameter, const QVariant& va
+     return true;
+ }
+ 
++GstElement *CameraBinExposure::libcameraSource() const
++{
++    GstElement *source = m_session->videoSource();
++    return source && g_object_class_find_property(G_OBJECT_GET_CLASS(source), "analogue-gain-mode")
++            ? source : 0;
++}
++
++void CameraBinExposure::setLibcameraValue(ExposureParameter parameter, const QVariant &value)
++{
++    GstElement *source = libcameraSource();
++    if (!source)
++        return;     // applied when the camera becomes active
++
++    if (parameter == QCameraExposureControl::ISO) {
++        const int iso = value.toInt();
++        if (iso > 0)
++            g_object_set(G_OBJECT(source), "analogue-gain-mode", 1 /* manual */,
++                         "analogue-gain", gfloat(iso / 100.0), NULL);
++        else
++            g_object_set(G_OBJECT(source), "analogue-gain-mode", 0 /* auto */, NULL);
++    } else if (parameter == QCameraExposureControl::ExposureCompensation) {
++        g_object_set(G_OBJECT(source), "exposure-value", gfloat(value.toReal()), NULL);
++    }
++}
++
++void CameraBinExposure::applyLibcameraValues(QCamera::Status status)
++{
++    if (status != QCamera::ActiveStatus)
++        return;
++    for (auto it = m_requestedValues.constBegin(); it != m_requestedValues.constEnd(); ++it)
++        setLibcameraValue(it.key(), it.value());
++}
++
+ QT_END_NAMESPACE
+diff --git a/src/plugins/gstreamer/camerabin/camerabinexposure.h b/src/plugins/gstreamer/camerabin/camerabinexposure.h
+index 4879dbff..08de291c 100644
+--- a/src/plugins/gstreamer/camerabin/camerabinexposure.h
++++ b/src/plugins/gstreamer/camerabin/camerabinexposure.h
+@@ -63,8 +63,17 @@ public:
+     QVariant actualValue(ExposureParameter parameter) const;
+     bool setValue(ExposureParameter parameter, const QVariant& value);
+ 
++private Q_SLOTS:
++    void applyLibcameraValues(QCamera::Status status);
++
+ private:
++    // libcamerasrc has no GstPhotography: ISO is set as analogue gain (gain 1 = ISO 100)
++    // and the compensation as ExposureValue, both through the source's control properties
++    GstElement *libcameraSource() const;
++    void setLibcameraValue(ExposureParameter parameter, const QVariant &value);
++
+     CameraBinSession *m_session;
++    bool m_libcamera;
+     QHash<ExposureParameter, QVariant> m_requestedValues;
+ 
+ #ifdef HAVE_GST_PHOTOGRAPHY
+diff --git a/src/plugins/gstreamer/camerabin/camerabinfocus.cpp b/src/plugins/gstreamer/camerabin/camerabinfocus.cpp
+index c519b4a1..1a734f8d 100644
+--- a/src/plugins/gstreamer/camerabin/camerabinfocus.cpp
++++ b/src/plugins/gstreamer/camerabin/camerabinfocus.cpp
+@@ -33,11 +33,13 @@
+ 
+ #include "camerabinfocus.h"
+ #include "camerabinsession.h"
++#include "camerabinflash.h"
+ 
+ #include <gst/interfaces/photography.h>
+ 
+ #include <QDebug>
+ #include <QtCore/qcoreevent.h>
++#include <QtCore/qhash.h>
+ #include <QtCore/qmetaobject.h>
+ 
+ #include <private/qgstutils_p.h>
+@@ -62,11 +64,19 @@ CameraBinFocus::CameraBinFocus(CameraBinSession *session)
+      m_focusStatus(QCamera::Unlocked),
+      m_focusZoneStatus(QCameraFocusZone::Selected),
+      m_focusPoint(0.5, 0.5),
+-     m_focusRect(0, 0, 0.3, 0.3)
++     m_focusRect(0, 0, 0.3, 0.3),
++     m_libcamera(!session->photography()),
++     m_lockPolls(0),
++     m_sawScanning(false),
++     m_assist(false),
++     m_windowToggle(false)
+ {
+     m_focusRect.moveCenter(m_focusPoint);
+ 
+-    gst_photography_set_focus_mode(m_session->photography(), GST_PHOTOGRAPHY_FOCUS_MODE_AUTO);
++    if (m_libcamera)
++        m_focusMode = QCameraFocus::ContinuousFocus;
++    else
++        gst_photography_set_focus_mode(m_session->photography(), GST_PHOTOGRAPHY_FOCUS_MODE_AUTO);
+ 
+     connect(m_session, SIGNAL(statusChanged(QCamera::Status)),
+             this, SLOT(_q_handleCameraStatusChange(QCamera::Status)));
+@@ -95,6 +105,15 @@ QCameraFocus::FocusModes CameraBinFocus::focusMode() const
+ 
+ void CameraBinFocus::setFocusMode(QCameraFocus::FocusModes mode)
+ {
++    if (m_libcamera) {
++        // the scan runs continuously; auto only differs in that a lock rescans
++        if (isFocusModeSupported(mode) && m_focusMode != mode) {
++            m_focusMode = mode;
++            emit focusModeChanged(m_focusMode);
++        }
++        return;
++    }
++
+     GstPhotographyFocusMode photographyMode;
+ 
+     switch (mode) {
+@@ -128,6 +147,9 @@ void CameraBinFocus::setFocusMode(QCameraFocus::FocusModes mode)
+ 
+ bool CameraBinFocus::isFocusModeSupported(QCameraFocus::FocusModes mode) const
+ {
++    if (m_libcamera)
++        return mode == QCameraFocus::AutoFocus || mode == QCameraFocus::ContinuousFocus;
++
+ #ifdef HAVE_GST_PHOTOGRAPHY
+     if (G_IS_OBJECT(m_session->cameraSource()) &&
+             G_IS_OBJECT_CLASS(G_OBJECT_GET_CLASS(G_OBJECT(m_session->cameraSource()))) &&
+@@ -385,16 +407,166 @@ void CameraBinFocus::_q_handleCameraStatusChange(QCamera::Status status)
+ 
+ void CameraBinFocus::_q_startFocusing()
+ {
++    if (m_libcamera) {
++        _q_setFocusStatus(QCamera::Searching, QCamera::UserRequest);
++        m_lockPolls = 0;
++        m_sawScanning = false;
++        if (m_focusPointMode == QCameraFocus::FocusPointCustom
++                || m_focusMode == QCameraFocus::AutoFocus) {
++            // a changed window restarts the scan, also for a second tap on the same spot
++            m_windowToggle = !m_windowToggle;
++            setLibcameraWindow(m_focusPointMode == QCameraFocus::FocusPointCustom
++                               ? m_focusRect : QRectF(0.35, 0.35, 0.3, 0.3));
++            setFocusAssist(true);
++        } else {
++            // continuous focus has the scene in focus already unless a scan is running
++            m_sawScanning = true;
++        }
++        m_lockTimer.start(100, this);
++        return;
++    }
+     _q_setFocusStatus(QCamera::Searching, QCamera::UserRequest);
+     gst_photography_set_autofocus(m_session->photography(), TRUE);
+ }
+ 
+ void CameraBinFocus::_q_stopFocusing()
+ {
++    if (m_libcamera) {
++        m_lockTimer.stop();
++        setFocusAssist(false);
++        _q_setFocusStatus(QCamera::Unlocked, QCamera::UserRequest);
++        return;
++    }
+     gst_photography_set_autofocus(m_session->photography(), FALSE);
+     _q_setFocusStatus(QCamera::Unlocked, QCamera::UserRequest);
+ }
+ 
++// Pixel array active area of a libcamera camera, from the device provider's properties
++// (an array of rectangles flattened to x, y, width, height, ...); looked up once per camera
++static QRect libcameraActiveArea(const QString &device)
++{
++    static QHash<QString, QRect> areas;
++    if (areas.contains(device))
++        return areas.value(device);
++
++    QRect area;
++    if (GstDeviceProvider *provider = gst_device_provider_factory_get_by_name("libcameraprovider")) {
++        GList *list = gst_device_provider_get_devices(provider);
++        for (GList *l = list; l; l = l->next) {
++            GstDevice *gstDevice = GST_DEVICE(l->data);
++            gchar *name = gst_device_get_display_name(gstDevice);
++            GstStructure *props = gst_device_get_properties(gstDevice);
++            const GValue *value = props
++                    ? gst_structure_get_value(props, "api.libcamera.PixelArrayActiveAreas") : 0;
++            if (device == QString::fromUtf8(name) && value && GST_VALUE_HOLDS_ARRAY(value)
++                    && gst_value_array_get_size(value) >= 4) {
++                int a[4];
++                for (int k = 0; k < 4; ++k)
++                    a[k] = g_value_get_int(gst_value_array_get_value(value, k));
++                area = QRect(a[0], a[1], a[2], a[3]);
++            }
++            if (props)
++                gst_structure_free(props);
++            g_free(name);
++        }
++        g_list_free_full(list, reinterpret_cast<GDestroyNotify>(gst_object_unref));
++        gst_object_unref(provider);
++    }
++    areas.insert(device, area);
++    return area;
++}
++
++GstElement *CameraBinFocus::libcameraSource() const
++{
++    GstElement *source = m_session->videoSource();
++    return source && g_object_class_find_property(G_OBJECT_GET_CLASS(source), "af-windows")
++            ? source : 0;
++}
++
++void CameraBinFocus::setLibcameraWindow(const QRectF &rectangle)
++{
++    GstElement *source = libcameraSource();
++    if (!source || m_cameraStatus != QCamera::ActiveStatus)
++        return;
++
++    GValue windows = G_VALUE_INIT;
++    g_value_init(&windows, GST_TYPE_ARRAY);
++
++    // AfWindows are in pixel array coordinates. The software ISP's input frame shows
++    // the active area (binned), and the stream is a centred crop of that frame, so the
++    // frame is the smallest rectangle of the active area's shape around the viewfinder.
++    const QRect area = libcameraActiveArea(m_session->device());
++    const QSize view = m_viewfinderResolution;
++    if (!rectangle.isEmpty() && !area.isEmpty() && !view.isEmpty()) {
++        const qreal frameWidth = qMax<qreal>(view.width(),
++                                             qreal(view.height()) * area.width() / area.height());
++        const qreal frameHeight = frameWidth * area.height() / area.width();
++        const qreal scale = area.width() / frameWidth;
++        const int window[4] = {
++            int(area.x() + ((frameWidth - view.width()) / 2 + rectangle.x() * view.width()) * scale),
++            int(area.y() + ((frameHeight - view.height()) / 2 + rectangle.y() * view.height()) * scale),
++            int(rectangle.width() * view.width() * scale) + (m_windowToggle ? 8 : 0),
++            int(rectangle.height() * view.height() * scale)
++        };
++        GValue rect = G_VALUE_INIT;
++        g_value_init(&rect, GST_TYPE_ARRAY);
++        for (int value : window) {
++            GValue v = G_VALUE_INIT;
++            g_value_init(&v, G_TYPE_INT);
++            g_value_set_int(&v, value);
++            gst_value_array_append_and_take_value(&rect, &v);
++        }
++        gst_value_array_append_and_take_value(&windows, &rect);
++    }
++
++    g_object_set_property(G_OBJECT(source), "af-windows", &windows);
++    g_value_unset(&windows);
++}
++
++void CameraBinFocus::pollLibcameraFocus()
++{
++    GstElement *source = libcameraSource();
++    gint state = 0;     // AfStateIdle, Scanning, Focused, Failed
++    if (source)
++        g_object_get(G_OBJECT(source), "af-state", &state, NULL);
++
++    // the last report can predate the restart: wait to see the new scan first
++    if (state == 1)
++        m_sawScanning = true;
++    ++m_lockPolls;
++
++    QCamera::LockStatus status = QCamera::Searching;
++    if (!source || (m_sawScanning && state == 2) || (m_lockPolls >= 5 && state == 0))
++        status = QCamera::Locked;
++    else if (m_lockPolls >= 80)     // 8 s
++        status = QCamera::Unlocked;
++    else if (!m_sawScanning && m_lockPolls >= 10 && state == 2)
++        status = QCamera::Locked;   // the scan finished between two polls
++
++    if (status != QCamera::Searching) {
++        m_lockTimer.stop();
++        setFocusAssist(false);
++        _q_setFocusStatus(status, status == QCamera::Locked ? QCamera::LockAcquired
++                                                             : QCamera::LockFailed);
++    }
++}
++
++void CameraBinFocus::setFocusAssist(bool on)
++{
++    CameraBinFlash *flash = m_session->cameraFlashControl();
++    if (!flash || !flash->ledFlash())
++        return;
++    if (on && flash->firesOnCapture()) {
++        flash->setLed(true);
++        m_assist = true;
++    } else if (!on && m_assist) {
++        // the capture switches the LED on again for its flash
++        if (!flash->flashMode().testFlag(QCameraExposure::FlashTorch))
++            flash->setLed(false);
++        m_assist = false;
++    }
++}
++
+ void CameraBinFocus::setViewfinderResolution(const QSize &resolution)
+ {
+     if (resolution != m_viewfinderResolution) {
+@@ -455,6 +627,19 @@ void CameraBinFocus::updateRegionOfInterest(const QVector<QRect> &rectangles)
+     if (m_cameraStatus != QCamera::ActiveStatus)
+         return;
+ 
++    if (m_libcamera) {
++        if (rectangles.isEmpty() || m_viewfinderResolution.isEmpty()) {
++            setLibcameraWindow(QRectF());
++        } else {
++            const QRect r = rectangles.first();
++            setLibcameraWindow(QRectF(qreal(r.x()) / m_viewfinderResolution.width(),
++                                      qreal(r.y()) / m_viewfinderResolution.height(),
++                                      qreal(r.width()) / m_viewfinderResolution.width(),
++                                      qreal(r.height()) / m_viewfinderResolution.height()));
++        }
++        return;
++    }
++
+     GstElement * const cameraSource = m_session->cameraSource();
+     if (!cameraSource)
+         return;
+@@ -523,7 +708,9 @@ void CameraBinFocus::_q_updateFaces()
+ 
+ void CameraBinFocus::timerEvent(QTimerEvent *event)
+ {
+-    if (event->timerId() == m_faceResetTimer.timerId()) {
++    if (event->timerId() == m_lockTimer.timerId()) {
++        pollLibcameraFocus();
++    } else if (event->timerId() == m_faceResetTimer.timerId()) {
+         m_faceResetTimer.stop();
+ 
+         if (m_focusStatus == QCamera::Unlocked) {
+diff --git a/src/plugins/gstreamer/camerabin/camerabinfocus.h b/src/plugins/gstreamer/camerabin/camerabinfocus.h
+index d193edf1..6d364d93 100644
+--- a/src/plugins/gstreamer/camerabin/camerabinfocus.h
++++ b/src/plugins/gstreamer/camerabin/camerabinfocus.h
+@@ -104,6 +104,13 @@ private Q_SLOTS:
+ #endif
+ 
+ private:
++    // libcamerasrc has no GstPhotography: the software ISP focuses on af-windows
++    // and reports af-state, which a timer polls while a lock is searched
++    GstElement *libcameraSource() const;
++    void setLibcameraWindow(const QRectF &rectangle);
++    void pollLibcameraFocus();
++    void setFocusAssist(bool on);
++
+     void resetFocusPoint();
+     void updateRegionOfInterest(const QRectF &rectangle);
+     void updateRegionOfInterest(const QVector<QRect> &rectangles);
+@@ -125,6 +132,12 @@ private:
+     QVector<QRect> m_faceFocusRects;
+     QBasicTimer m_faceResetTimer;
+     mutable QMutex m_mutex;
++    bool m_libcamera;
++    QBasicTimer m_lockTimer;
++    int m_lockPolls;
++    bool m_sawScanning;
++    bool m_assist;
++    bool m_windowToggle;
+ #ifdef HAVE_GST_PHOTOGRAPHY
+     QMap<GstPhotographyFocusMode, QCameraFocus::FocusMode> m_focusMap;
+ #endif
+diff --git a/src/plugins/gstreamer/camerabin/camerabinsession.cpp b/src/plugins/gstreamer/camerabin/camerabinsession.cpp
+index 5109d73f..a3f2ea69 100644
+--- a/src/plugins/gstreamer/camerabin/camerabinsession.cpp
++++ b/src/plugins/gstreamer/camerabin/camerabinsession.cpp
+@@ -217,6 +217,14 @@ CameraBinSession::~CameraBinSession()
+ }
+ 
+ #ifdef HAVE_GST_PHOTOGRAPHY
++// The wrapper source holds libcamerasrc (QT_GSTREAMER_CAMERABIN_VIDEOSRC): focus, locks
++// and exposure then work through its control properties instead of GstPhotography
++bool CameraBinSession::libcameraSource() const
++{
++    static const bool libcamera = qgetenv("QT_GSTREAMER_CAMERABIN_VIDEOSRC").startsWith("libcamerasrc");
++    return libcamera;
++}
++
+ GstPhotography *CameraBinSession::photography()
+ {
+     if (GST_IS_PHOTOGRAPHY(m_camerabin)) {
+@@ -233,7 +241,7 @@ GstPhotography *CameraBinSession::photography()
+ 
+ CameraBinExposure *CameraBinSession::cameraExposureControl()
+ {
+-    if (!m_cameraExposureControl && photography())
++    if (!m_cameraExposureControl && (photography() || libcameraSource()))
+         m_cameraExposureControl = new CameraBinExposure(this);
+     return m_cameraExposureControl;
+ }
+@@ -247,14 +255,14 @@ CameraBinFlash *CameraBinSession::cameraFlashControl()
+ 
+ CameraBinFocus *CameraBinSession::cameraFocusControl()
+ {
+-    if (!m_cameraFocusControl && photography())
++    if (!m_cameraFocusControl && (photography() || libcameraSource()))
+         m_cameraFocusControl = new CameraBinFocus(this);
+     return m_cameraFocusControl;
+ }
+ 
+ CameraBinLocks *CameraBinSession::cameraLocksControl()
+ {
+-    if (!m_cameraLocksControl && photography())
++    if (!m_cameraLocksControl && (photography() || libcameraSource()))
+         m_cameraLocksControl = new CameraBinLocks(this);
+     return m_cameraLocksControl;
+ }
+diff --git a/src/plugins/gstreamer/camerabin/camerabinsession.h b/src/plugins/gstreamer/camerabin/camerabinsession.h
+index 5f6a6524..1e1e2224 100644
+--- a/src/plugins/gstreamer/camerabin/camerabinsession.h
++++ b/src/plugins/gstreamer/camerabin/camerabinsession.h
+@@ -94,6 +94,9 @@ public:
+ #endif
+     GstElement *cameraBin() { return m_camerabin; }
+     GstElement *cameraSource() { return m_cameraSrc; }
++    // the element inside a wrapper source, e.g. libcamerasrc
++    GstElement *videoSource() { return m_videoSrc; }
++    bool libcameraSource() const;
+     QGstreamerBusHelper *bus() { return m_busHelper; }
+ 
+     QList< QPair<int,int> > supportedFrameRates(const QSize &frameSize, bool *continuous) const;
+-- 
+2.56.0
+

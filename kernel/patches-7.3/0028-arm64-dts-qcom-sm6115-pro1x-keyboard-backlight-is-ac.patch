@@ -1,0 +1,36 @@
+From 38b061081a4d5b92c4a97529b8ed11ce35693a49 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Fri, 30 Oct 2026 02:02:44 +0100
+Subject: [PATCH] arm64: dts: qcom: sm6115-pro1x: keyboard backlight is active
+ high
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+sfos-dt inverted the keyboard backlight LED together with the slide
+switch. Only the switch needs it, for mce's N900 reading; the LED lights
+with the GPIO high, so brightness 0 lit the keyboard while the display
+was off and brightness 1 darkened it while slid out.
+
+Disclosure: LLMGD-3 · origin O1 (author reported the backwards backlight and confirmed the cause on the device, the model found and changed the line)
+LLMGD: v0.3; assurance=A3; flags=U,T; origin=O1; origin_headline=O1; scope=kernel; graded-by=model; retrieval=none
+---
+ arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts b/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
+index a0e7a3e69..e6469cde4 100644
+--- a/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
++++ b/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
+@@ -195,7 +195,7 @@ capslock-led {
+ 		kbd-backlight {
+ 			function = LED_FUNCTION_KBD_BACKLIGHT;
+ 			color = <LED_COLOR_ID_WHITE>;
+-			gpios = <&tlmm 103 GPIO_ACTIVE_LOW>;
++			gpios = <&tlmm 103 GPIO_ACTIVE_HIGH>;
+ 			default-state = "off";
+ 			pinctrl-names = "default";
+ 			pinctrl-0 = <&kbd_backlight_default>;
+-- 
+2.56.0
+

@@ -1,0 +1,99 @@
+From 7430d3343ed69763adbf4b41694e0bde7ab47339 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Fri, 30 Oct 2026 02:04:59 +0100
+Subject: [PATCH 15/15] ipa: Focus is lost only when sharpness drops;
+ AfModeAuto holds it
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+libipa compared the absolute sharpness change with maxChange, so a
+sharper frame (more texture, more light) restarted the scan as well,
+sweeping the lens through blurred positions. A rise now becomes the
+new reference.
+
+The simple IPA's Af reads AfMode: in AfModeAuto a found focus is held
+until the window or the mode changes, which is what a tap to focus
+expects; AfModeContinuous keeps following the scene.
+
+Disclosure: LLMGD-0 · origin O1 (author reported focus loss after a lock, the model wrote the change; not yet run on the device)
+LLMGD: v0.3; assurance=A0; flags=none; origin=O1; origin_headline=O1; scope=libcamera; graded-by=model; retrieval=none
+---
+ src/ipa/libipa/af.cpp            | 10 ++++++++++
+ src/ipa/simple/algorithms/af.cpp |  9 ++++++++-
+ src/ipa/simple/algorithms/af.h   |  4 ++++
+ 3 files changed, 22 insertions(+), 1 deletion(-)
+
+diff --git a/src/ipa/libipa/af.cpp b/src/ipa/libipa/af.cpp
+index d4ce3f09..77dbe439 100644
+--- a/src/ipa/libipa/af.cpp
++++ b/src/ipa/libipa/af.cpp
+@@ -241,6 +241,16 @@ void AfAlgorithm::afIgnoreFrameReset()
+  */
+ bool AfAlgorithm::afIsOutOfFocus(af::ActiveState &state)
+ {
++	/*
++	 * Only a loss of sharpness means the focus is off. A sharper frame (more
++	 * texture, more light) becomes the new reference instead of a rescan
++	 * that would sweep the lens through blurred positions.
++	 */
++	if (currentVariance_ > state.maxVariance) {
++		state.maxVariance = currentVariance_;
++		return false;
++	}
++
+ 	const uint32_t diff_var = std::abs(currentVariance_ -
+ 					   state.maxVariance);
+ 	const double var_ratio = diff_var / state.maxVariance;
+diff --git a/src/ipa/simple/algorithms/af.cpp b/src/ipa/simple/algorithms/af.cpp
+index 8a708384..c7c5ee13 100644
+--- a/src/ipa/simple/algorithms/af.cpp
++++ b/src/ipa/simple/algorithms/af.cpp
+@@ -59,6 +59,12 @@ void Af::queueRequest(IPAContext &context,
+ 		      [[maybe_unused]] IPAFrameContext &frameContext,
+ 		      const ControlList &controls)
+ {
++	const auto &mode = controls.get(controls::AfMode);
++	if (mode && *mode != mode_) {
++		mode_ = *mode;
++		LOG(IPASoftAf, Debug) << "Focus mode " << mode_;
++	}
++
+ 	const auto &windows = controls.get(controls::AfWindows);
+ 	if (!windows)
+ 		return;
+@@ -84,7 +90,8 @@ void Af::process(IPAContext &context,
+ 
+ 	const double variance = stats->variance;
+ 	LOG(IPASoftAf, Debug) << "Focus stats: " << variance;
+-	afAlgo_.process(context.activeState.af, variance);
++	if (!(mode_ == controls::AfModeAuto && context.activeState.af.stable))
++		afAlgo_.process(context.activeState.af, variance);
+ 
+ 	metadata.set(controls::AfState, context.activeState.af.stable
+ 					? controls::AfStateFocused
+diff --git a/src/ipa/simple/algorithms/af.h b/src/ipa/simple/algorithms/af.h
+index a0a662bb..8b6c4db6 100644
+--- a/src/ipa/simple/algorithms/af.h
++++ b/src/ipa/simple/algorithms/af.h
+@@ -7,6 +7,8 @@
+ 
+ #pragma once
+ 
++#include <libcamera/control_ids.h>
++
+ #include "libipa/af.h"
+ 
+ #include "algorithm.h"
+@@ -37,6 +39,8 @@ private:
+ 	AfAlgorithm afAlgo_;
+ 	/* The last requested focus window, a change restarts the scan */
+ 	Rectangle window_;
++	/* AfModeAuto holds a found focus until the next window or mode change */
++	int32_t mode_ = controls::AfModeContinuous;
+ };
+ 
+ } /* namespace ipa::soft::algorithms */
+-- 
+2.56.0
+

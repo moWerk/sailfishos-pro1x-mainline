@@ -1,0 +1,186 @@
+From 8810be149b2ff26a25de57f8b514ec22943f4a42 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Fri, 30 Oct 2026 00:53:46 +0100
+Subject: [PATCH 12/15] ipa: simple: agc: Manual analogue gain, exposure time
+ and exposure value
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Registers AnalogueGainMode, ExposureTimeMode, AnalogueGain, ExposureTime
+and ExposureValue. A manual value overrides the automatic one for that
+parameter only, the other keeps adapting; ExposureValue shifts the mean
+brightness target by half a histogram bin per EV step.
+
+Used by the Pro1-X SailfishOS port for the camera app's ISO and
+exposure compensation settings.
+
+Disclosure: LLMGD-2 · origin O1 (author asked for tap to focus and ISO on the camera and tested both in jolla-camera, the model wrote the code)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=libcamera; graded-by=model; retrieval=none
+---
+ src/ipa/simple/algorithms/agc.cpp | 86 +++++++++++++++++++++++++++++--
+ src/ipa/simple/algorithms/agc.h   |  9 +++-
+ src/ipa/simple/ipa_context.h      |  6 +++
+ 3 files changed, 97 insertions(+), 4 deletions(-)
+
+diff --git a/src/ipa/simple/algorithms/agc.cpp b/src/ipa/simple/algorithms/agc.cpp
+index a13a7552..3b83118e 100644
+--- a/src/ipa/simple/algorithms/agc.cpp
++++ b/src/ipa/simple/algorithms/agc.cpp
+@@ -65,12 +65,81 @@ Agc::Agc()
+ {
+ }
+ 
+-void Agc::updateExposure(IPAContext &context, IPAFrameContext &frameContext, double exposureMSV)
++int Agc::init(IPAContext &context, [[maybe_unused]] const ValueNode &tuningData)
++{
++	context.ctrlMap[&controls::AnalogueGainMode] =
++		ControlInfo(controls::AnalogueGainModeValues);
++	context.ctrlMap[&controls::ExposureTimeMode] =
++		ControlInfo(controls::ExposureTimeModeValues);
++	context.ctrlMap[&controls::AnalogueGain] = ControlInfo(1.0f, 64.0f, 1.0f);
++	context.ctrlMap[&controls::ExposureTime] = ControlInfo(1, 1000000, 10000);
++	context.ctrlMap[&controls::ExposureValue] = ControlInfo(-4.0f, 4.0f, 0.0f);
++
++	context.activeState.agc.manualGain = false;
++	context.activeState.agc.manualExposure = false;
++	context.activeState.agc.manualGainValue = 1.0;
++	context.activeState.agc.manualExposureUs = 10000;
++	context.activeState.agc.exposureValue = 0.0f;
++	return 0;
++}
++
++void Agc::queueRequest(IPAContext &context,
++		       [[maybe_unused]] const uint32_t frame,
++		       [[maybe_unused]] IPAFrameContext &frameContext,
++		       const ControlList &controls)
++{
++	auto &agc = context.activeState.agc;
++
++	const auto &gainMode = controls.get(controls::AnalogueGainMode);
++	if (gainMode)
++		agc.manualGain = *gainMode == controls::AnalogueGainModeManual;
++	const auto &gain = controls.get(controls::AnalogueGain);
++	if (gain)
++		agc.manualGainValue = *gain;
++
++	const auto &expMode = controls.get(controls::ExposureTimeMode);
++	if (expMode)
++		agc.manualExposure = *expMode == controls::ExposureTimeModeManual;
++	const auto &expTime = controls.get(controls::ExposureTime);
++	if (expTime)
++		agc.manualExposureUs = *expTime;
++
++	const auto &ev = controls.get(controls::ExposureValue);
++	if (ev)
++		agc.exposureValue = *ev;
++
++	if (gainMode || gain || expMode || expTime || ev)
++		LOG(IPASoftExposure, Debug)
++			<< "manual gain " << agc.manualGain << " (" << agc.manualGainValue
++			<< "), manual exposure " << agc.manualExposure << " ("
++			<< agc.manualExposureUs << " us), EV " << agc.exposureValue;
++}
++
++/* Manual values override what the automatic chose; the other one stays automatic. */
++void Agc::applyManual(IPAContext &context, IPAFrameContext &frameContext)
++{
++	auto &agc = context.activeState.agc;
++	const auto &cfg = context.configuration.agc;
++
++	if (agc.manualGain) {
++		agc.again = std::clamp(agc.manualGainValue, cfg.againMin, cfg.againMax);
++		frameContext.sensor.gain = agc.again;
++	}
++	if (agc.manualExposure && cfg.lineDuration > utils::Duration(0)) {
++		int32_t lines = static_cast<int32_t>(
++			std::chrono::microseconds(agc.manualExposureUs) / cfg.lineDuration);
++		agc.exposure = std::clamp(lines, cfg.exposureMin, cfg.exposureMax);
++		frameContext.sensor.exposure = agc.exposure;
++	}
++}
++
++void Agc::updateExposure(IPAContext &context, IPAFrameContext &frameContext,
++			 double exposureMSV, double target)
+ {
+ 	int32_t &exposure = frameContext.sensor.exposure;
+ 	double &again = frameContext.sensor.gain;
+ 
+-	double error = kExposureOptimal - exposureMSV;
++	double error = target - exposureMSV;
+ 
+ 	if (std::abs(error) <= kExposureSatisfactory)
+ 		return;
+@@ -152,6 +221,7 @@ void Agc::process(IPAContext &context,
+ 		 */
+ 		frameContext.sensor.exposure = context.activeState.agc.exposure;
+ 		frameContext.sensor.gain = context.activeState.agc.again;
++		applyManual(context, frameContext);
+ 		return;
+ 	}
+ 
+@@ -189,7 +259,17 @@ void Agc::process(IPAContext &context,
+ 	}
+ 
+ 	float exposureMSV = (denom == 0 ? 0 : static_cast<float>(num) / denom);
+-	updateExposure(context, frameContext, exposureMSV);
++
++	/*
++	 * EV compensation moves the target of the mean sample value (bins 1..5):
++	 * half a bin per stop, kept inside the histogram.
++	 */
++	const double target = std::clamp(kExposureOptimal + 0.5 * context.activeState.agc.exposureValue,
++					 1.2, kExposureBinsCount - 0.2);
++	auto &agc = context.activeState.agc;
++	if (!(agc.manualGain && agc.manualExposure))
++		updateExposure(context, frameContext, exposureMSV, target);
++	applyManual(context, frameContext);
+ }
+ 
+ REGISTER_IPA_ALGORITHM(Agc, "Agc")
+diff --git a/src/ipa/simple/algorithms/agc.h b/src/ipa/simple/algorithms/agc.h
+index 112d9f5a..5e8b90c8 100644
+--- a/src/ipa/simple/algorithms/agc.h
++++ b/src/ipa/simple/algorithms/agc.h
+@@ -19,13 +19,20 @@ public:
+ 	Agc();
+ 	~Agc() = default;
+ 
++	int init(IPAContext &context, const ValueNode &tuningData) override;
++	void queueRequest(IPAContext &context, const uint32_t frame,
++			  IPAFrameContext &frameContext,
++			  const ControlList &controls) override;
++
+ 	void process(IPAContext &context, const uint32_t frame,
+ 		     IPAFrameContext &frameContext,
+ 		     const SwIspStats *stats,
+ 		     ControlList &metadata) override;
+ 
+ private:
+-	void updateExposure(IPAContext &context, IPAFrameContext &frameContext, double exposureMSV);
++	void updateExposure(IPAContext &context, IPAFrameContext &frameContext,
++			    double exposureMSV, double target);
++	void applyManual(IPAContext &context, IPAFrameContext &frameContext);
+ };
+ 
+ } /* namespace ipa::soft::algorithms */
+diff --git a/src/ipa/simple/ipa_context.h b/src/ipa/simple/ipa_context.h
+index d92316eb..f061a250 100644
+--- a/src/ipa/simple/ipa_context.h
++++ b/src/ipa/simple/ipa_context.h
+@@ -43,6 +43,12 @@ struct IPAActiveState {
+ 		int32_t exposure;
+ 		double again;
+ 		bool valid;
++		/* manual values from the application (AnalogueGainMode/ExposureTimeMode) */
++		bool manualGain;
++		bool manualExposure;
++		double manualGainValue;
++		int32_t manualExposureUs;
++		float exposureValue;	/* EV compensation in stops */
+ 	} agc;
+ 
+ 	struct {
+-- 
+2.56.0
+

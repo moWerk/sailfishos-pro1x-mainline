@@ -1,0 +1,62 @@
+From 06c5121aae6758aa9d5c0064275ebfeeb234587a Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Fri, 30 Oct 2026 02:23:10 +0100
+Subject: [PATCH 13/13] camerabin: libcamerasrc follows the focus mode, Release
+ 14
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Auto focus (jolla-camera after a tap) sets af-mode to AfModeAuto, which
+the software ISP's Af holds once found; continuous focus sets
+AfModeContinuous. Also sent on each lock, in case the mode was set
+before the camera ran.
+
+Disclosure: LLMGD-0 · origin O1 (author reported focus loss after a lock, the model wrote the change; not yet run on the device)
+LLMGD: v0.3; assurance=A0; flags=none; origin=O1; origin_headline=O1; scope=qtmultimedia; graded-by=model; retrieval=none
+---
+ rpm/qtmultimedia.spec                              | 2 +-
+ src/plugins/gstreamer/camerabin/camerabinfocus.cpp | 7 +++++++
+ 2 files changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/rpm/qtmultimedia.spec b/rpm/qtmultimedia.spec
+index 884693b8..6ff5ef81 100644
+--- a/rpm/qtmultimedia.spec
++++ b/rpm/qtmultimedia.spec
+@@ -1,7 +1,7 @@
+ Name:       qt5-qtmultimedia
+ Summary:    Qt Multimedia module
+ Version:    5.6.2+v4l.20261024000000.qx1050
+-Release:    13%{?dist}
++Release:    14%{?dist}
+ License:    (LGPLv2 or LGPLv3) with exception or GPLv3 or Qt Commercial
+ URL:        https://www.qt.io/
+ Source0:    %{name}-%{version}.tar.bz2
+diff --git a/src/plugins/gstreamer/camerabin/camerabinfocus.cpp b/src/plugins/gstreamer/camerabin/camerabinfocus.cpp
+index 1a734f8d..936065b9 100644
+--- a/src/plugins/gstreamer/camerabin/camerabinfocus.cpp
++++ b/src/plugins/gstreamer/camerabin/camerabinfocus.cpp
+@@ -109,6 +109,10 @@ void CameraBinFocus::setFocusMode(QCameraFocus::FocusModes mode)
+         // the scan runs continuously; auto only differs in that a lock rescans
+         if (isFocusModeSupported(mode) && m_focusMode != mode) {
+             m_focusMode = mode;
++            // AfModeAuto (1) holds a found focus, AfModeContinuous (2) follows the scene
++            if (GstElement *source = libcameraSource())
++                g_object_set(G_OBJECT(source), "af-mode",
++                             mode == QCameraFocus::AutoFocus ? 1 : 2, NULL);
+             emit focusModeChanged(m_focusMode);
+         }
+         return;
+@@ -409,6 +413,9 @@ void CameraBinFocus::_q_startFocusing()
+ {
+     if (m_libcamera) {
+         _q_setFocusStatus(QCamera::Searching, QCamera::UserRequest);
++        if (GstElement *source = libcameraSource())
++            g_object_set(G_OBJECT(source), "af-mode",
++                         m_focusMode == QCameraFocus::AutoFocus ? 1 : 2, NULL);
+         m_lockPolls = 0;
+         m_sawScanning = false;
+         if (m_focusPointMode == QCameraFocus::FocusPointCustom
+-- 
+2.56.0
+

@@ -1,7 +1,7 @@
 Name:       libcamera
 Summary:    A library to support complex camera ISPs
 Version:    0.7.2
-Release:    4.qx1050
+Release:    6.qx1050
 License:    LGPLv2+
 URL:        https://libcamera.org
 Source:     %{name}-%{version}.tar.bz2
@@ -19,6 +19,10 @@ Patch8:    0008-libcamera-software_isp-Add-autofocus-controls.patch
 Patch9:    0009-ipa-libipa-Use-autofocus-limits-if-available.patch
 Patch10:    0010-software_isp-Compute-an-autofocus-sharpness-value.patch
 Patch11:    0011-ipa-libipa-af-Make-the-scan-parameters-configurable.patch
+Patch12:    0012-ipa-simple-agc-Manual-analogue-gain-exposure-time-an.patch
+Patch13:    0013-software_isp-ipa-simple-af-Focus-on-AfWindows.patch
+Patch14:    0014-gstreamer-Serialise-control-access-and-expose-AfStat.patch
+Patch15:    0015-ipa-Focus-is-lost-only-when-sharpness-drops-AfModeAu.patch
 Source1:    imx582.yaml
 Source2:    s5k4h7.yaml
 
