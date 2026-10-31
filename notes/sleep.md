@@ -217,7 +217,7 @@ holders of bi_tcxo/xo, interconnect sleep votes; then MPM + rpm-master-stats in 
   macros' runtime suspend) and an audio regression check (speaker, earpiece, calls, the
   first-probe silence), so it waits for the author's go.
 
-## Kernel p: system-level sleep under the MPM (2026-10-31, in test)
+## Kernel p: system-level sleep under the MPM (2026-10-31, experimental)
 
 - Kernel n + a system power domain above both clusters (`system-sleep-0`, `0x42000343`:
   system 3, cluster PC 4, CPU PC 3, affinity level 2; latencies from downstream system-pc) whose
@@ -250,7 +250,21 @@ holders of bi_tcxo/xo, interconnect sleep votes; then MPM + rpm-master-stats in 
   test it hung in the APR teardown (q6afe "packet not transmitted", remoteproc stayed
   "running"); a forced reboot recovered. Next candidates: what the ADSP firmware itself keeps
   running (SSC always-on sensors, the registry), and the RPM votes the HLOS holds for LPASS.
-- Not yet checked on q: Wi-Fi and modem wake from system sleep (not in the MPM map).
+- Modem wake on q (tested at the bench, 2026-10-31 21:30): an SMS arrived about 1 min late and
+  a call rang 20-25 s after the caller heard it ringing; the wake IRQ log showed only the
+  pm8xxx RTC alarm (IRQ 131), so the next timer woke the phone and not the modem. The modem's
+  glink (SPI 68) and SMP2P interrupts have no MPM pin. Double tap, the hall sensor and the
+  power key woke at once (TLMM and SPMI go through the MPM). Downstream's mechanism for this is
+  not found yet. So 0050/0051 stay out of the daily kernel.
+- Daily kernel s (2026-10-31 23:10): kernel q's Image with kernel n's dtb, so no system domain
+  (0049 is in the Image but idle without the MPM node). Calls and SMS should wake at once
+  again (bench check 2026-10-31 23:45: SMS and call both instant), at the cost of no APSS sleep report to the RPM.
+- The ADSP RPM master entry also shows no bringup request ever (`Last bringup req @ 0`): the
+  ADSP never asks the RPM to sleep, it is not refused. Its own sleep stats (SMEM) are not
+  exposed by mainline qcom_stats on sm6115; that is the next diagnostic.
+- Careful: reading whole PMIC regmaps through debugfs (`/sys/kernel/debug/regmap/*/registers`)
+  crashed the phone into the Qualcomm dump mode (05c6:900e) within a minute; only a long power
+  key press got it out. Read named registers only.
 - The DCP-first detection is phone-side: 16 plug-ins with the phone awake read SDP/OCP/0x00
   and never DCP; both DCP cases came with a plug-in to a sleeping phone. Patch 0052 re-runs APSD
   once: DCP, QC2, re-run, SDP, USB in 10 s.
