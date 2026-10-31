@@ -216,3 +216,26 @@ holders of bi_tcxo/xo, interconnect sleep votes; then MPM + rpm-master-stats in 
   votes are what keeps the ADSP awake; that needs a patched kernel (drop the votes in the
   macros' runtime suspend) and an audio regression check (speaker, earpiece, calls, the
   first-probe silence), so it waits for the author's go.
+
+## Kernel p: system-level sleep under the MPM (2026-10-31, in test)
+
+- Kernel n + a system power domain above both clusters (`system-sleep-0`, `0x42000343`:
+  system 3, cluster PC 4, CPU PC 3, affinity level 2; latencies from downstream system-pc) whose
+  parent is the MPM (0039's node, the clusters no longer its direct children). The MPM genpd
+  uses the CPU governor, and its power-off writes the earliest hrtimer of the CPUs below it as
+  an absolute arch timer count to the vMPM TIMER0/1 before the IPC to the RPM. During system
+  suspend (s2idle, pm_suspend_target_state set) it writes "never": kernel timers are frozen
+  then and the wakeup interrupts decide.
+- Wake paths with the GIC off: only the MPM pin map (TSENS, LPASS SoundWire, DWC3 ss_phy, LPASS
+  LPI, SPMI = power key, RTC, typec/VBUS, QUSB2 DP/DM; tlmm through wakeup-parent: touch,
+  keyboard slide). Not mapped: WCN3950 Wi-Fi, the modem's IPC lines. Expect Wi-Fi not to wake
+  the phone; calls/SMS unproven.
+- Recovery if it does not wake: /api/on on 1-3.3.4/4 (VBUS -> typec IRQ -> SPMI MPM pin), else
+  the power key. Backup of kernel n: /root/boot_a.pre-k-p.img.
+- Correction (kernel q with a temporary clk-core debug log, 2026-10-31): the LPASS clocks are
+  NOT held. Every prepare is matched by an unprepare; between bursts LPASS_HW_DCODEC's
+  clk_prepare_count is 0. The counts of 1-4 seen before came from reading clk_summary itself:
+  its "hardware enable" column calls clk_pm_runtime_get_all, which runtime-resumes the macros
+  (providers of fsgen and the mclk outputs), and their pm_clk resume prepares the q6afe clocks.
+  Read `/sys/kernel/debug/clk/<name>/clk_prepare_count` instead. So the audio votes do not keep
+  the ADSP awake; no audio patch.
