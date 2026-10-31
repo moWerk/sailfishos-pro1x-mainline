@@ -118,3 +118,29 @@ holders of bi_tcxo/xo, interconnect sleep votes; then MPM + rpm-master-stats in 
   Handed to a-d-b; its proposal is to start wanze.service once at boot instead of OnBootSec.
 - 12:15, end of a 45 min unplugged window on kernel i (pm_debug_messages on): the phone did not
   come back on VBUS and answers neither Wi-Fi nor USB. Not seen before on this kernel.
+
+## Kernel m, and the cluster power-collapse parameter (2026-10-31 afternoon)
+
+- The no-network boot 13:44-14:06 (kernel i): systemd-udevd hung (watchdog kill after 3 min),
+  usb_moded "no network gateway"; that is why devmode never came up on that boot.
+- Kernel m (0041-0043, 0044 module) on the phone from 14:09. USB: after a 10 min unplugged sleep
+  neither link answered until an a-d-b port cycle (a fresh enumeration, so no proof). After the
+  45 min window below it came up over USB without a cycle, but only 5.5 min after VBUS on.
+  No `-22` brightness errors.
+- 45 min unplugged (14:27-15:12, read at 15:17): 91 -> 84 % (~9 %/h, as kernel i's night),
+  1514 s of 3037 s frozen (50 %), 24 suspends, 3 failed, 6 RCU stalls. Dropping the MPM changed
+  nothing. The sleep-OCV anchor (0044) logged no line.
+- Cause: the PSCI firmware (OSI mode) refused the cluster idle states. Kernel m counters per
+  boot: cluster S1 rejected ~44 million times (usage underflowed to 2^64-1), the CPU
+  power-collapse state ~1 million rejections per CPU, s2idle entries 3.8 M (cpu0) and 14.6 M
+  (cpu4). The s2idle loop spun instead of sleeping.
+  sm6115.dtsi's cluster power collapse is `0x41000044` (CPU field 4, rail collapse), but its only
+  CPU state is `0x40000003`; cpuidle-psci sends the domain state in place of the CPU state, not
+  ORed. sc7180/sm6375 pair `0x41000044` with a CPU state `0x40000004`; agatti (QCM2290) pairs
+  `0x40000003` with `0x41000043`.
+- Test (kernel m Image, dtb patched to `0x41000043` for cluster-sleep-0-1 and -1-1): in the
+  first minute cluster S1 usage 374/148 with 19/4 rejections. GDHS (`0x40000022`/`0x40000042`)
+  is still rejected by the ten thousand; not changed yet. Downstream bengal's lpm-levels would
+  say which values this firmware accepts; not yet checked.
+- Kernel h (no MPM, no 0038) probably ran OSI too (kernel m sets the topology up at 0.07 s with
+  no deferral), but no h boot log with the line survives; its ~100 mA night stays unexplained.
