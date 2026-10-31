@@ -174,3 +174,10 @@ holders of bi_tcxo/xo, interconnect sleep votes; then MPM + rpm-master-stats in 
   (CDP) at 17:17:27. Other plugs read 0x04 or 0x02 (OCP). Asked a-d-b whether the port does this
   at power-on. `typec port0-partner: PM: parent port0 should not be sleeping` with an aborted
   suspend at each plug-in during suspend entry: the wake doing its job, noise.
+- Plugged into the PC/hub with charging stopped at the limit, the phone slept and USB went dark
+  (a host cannot wake it through the gadget). Patch 0048 keeps it awake on any non-DCP port, as
+  downstream dwc3-msm does. Reloading the module re-enabled charging behind mce's back (probe);
+  after a reload write 0 to charging_enabled if mce has charging off.
+- 17:28:39: a-d-b's stray-SSH aligner power-cycled the port unasked (it probes the AsteroidOS
+  default 192.168.2.15, the phone is on .19); no measurement was running. a-d-b is fixing it; take
+  its hold on the port for test windows.
