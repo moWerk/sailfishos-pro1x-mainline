@@ -1,4 +1,4 @@
-From 8a230c211cc52f8bc711f17c623fa22156d3dfa0 Mon Sep 17 00:00:00 2001
+From c3b4e548d7e045057950bd747a568ad1f0ad1a41 Mon Sep 17 00:00:00 2001
 From: moWerk <mo@mowerk.net>
 Date: Sat, 31 Oct 2026 12:28:47 +0100
 Subject: [PATCH 42/43] drm/panel: boe-bf060y8m-aj0: skip brightness writes
@@ -12,8 +12,8 @@ powered down, and every such write failed with "Failed to write display
 brightness: -22". Skip the write then; boe_bf060y8m_aj0_on() sends the
 current level when the panel comes up (as panel-samsung-sofef00 does).
 
-Disclosure: LLMGD-0 · origin O1 (the model wrote it from the msm DSI host and panel code; not yet built)
-LLMGD: v0.3; assurance=A0; flags=none; origin=O1; origin_headline=O1; scope=kernel; graded-by=model; retrieval=none
+Disclosure: LLMGD-2 · origin O1 (the model wrote it from the msm DSI host and panel code; built, not yet on the device)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=kernel; graded-by=model; retrieval=none
 ---
  drivers/gpu/drm/panel/panel-boe-bf060y8m-aj0.c | 5 +++++
  1 file changed, 5 insertions(+)

@@ -1,4 +1,4 @@
-From dafc47754bec7e40bbb56c80ddef845442ae5ced Mon Sep 17 00:00:00 2001
+From 1927325a0bfb7a540b3c2b019e7259ff4df8aba1 Mon Sep 17 00:00:00 2001
 From: moWerk <mo@mowerk.net>
 Date: Sat, 31 Oct 2026 12:33:34 +0100
 Subject: [PATCH 43/43] Revert "arm64: dts: qcom: sm6115-pro1x: add the MPM"
@@ -17,8 +17,8 @@ about twice as much, and the phone once did not wake again. Upstream's
 programming in v3 and took the MPM power domain off agatti; do the same
 until the timer is programmed.
 
-Disclosure: LLMGD-0 · origin O1 (the model wrote it from the night's logs and the upstream series; not yet built)
-LLMGD: v0.3; assurance=A0; flags=none; origin=O1; origin_headline=O1; scope=kernel; graded-by=model; retrieval=web
+Disclosure: LLMGD-2 · origin O1 (the model wrote it from the night's logs and the upstream series; built, not yet on the device)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=kernel; graded-by=model; retrieval=web
 ---
  .../boot/dts/qcom/sm6115-fxtec-pro1x.dts      | 44 -------------------
  1 file changed, 44 deletions(-)
