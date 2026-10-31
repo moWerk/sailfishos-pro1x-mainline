@@ -203,3 +203,16 @@ holders of bi_tcxo/xo, interconnect sleep votes; then MPM + rpm-master-stats in 
 - Perspective on 0045: by gauge the fixed dtb does ~4 %/h unplugged, kernel h did ~3 %/h (2 % in
   39 min). 0045 removes the regression that OSI mode with refused cluster states caused; it does
   not lower the floor, which is XO never shutting down.
+- ADSP never power-collapses (kernel n, whole boot: shutdown count 0, active-core bitmask
+  0x1). Not the sensor client: with sensorfwd and qx1050-hexagonrpcd stopped and no fastrpc
+  holder, 5 min, still 0. Not a stream: every PCM closed, both pulse sinks SUSPENDED.
+  Candidate: the LPASS votes through q6afe. With everything runtime-suspended (rx/tx/va macros,
+  both SoundWire masters and their wcd937x slaves), clk_summary still shows LPASS_HW_DCODEC 4,
+  RX/TX_CORE_NPL_MCLK 1-4, RX/TX_CORE_MCLK 1-2 and fsgen 2 enabled at 19.2 MHz.
+  lpass-macro-common takes the macro/dcodec votes at probe and drops them only at removal; the
+  macros' own pm_clk set is released in runtime suspend, but the output clocks the macros
+  register for SoundWire keep users counted. The macros cannot be unbound
+  (suppress_bind_attrs); unbinding only the card left the clocks on. Not yet shown that these
+  votes are what keeps the ADSP awake; that needs a patched kernel (drop the votes in the
+  macros' runtime suspend) and an audio regression check (speaker, earpiece, calls, the
+  first-probe silence), so it waits for the author's go.
