@@ -251,3 +251,9 @@ holders of bi_tcxo/xo, interconnect sleep votes; then MPM + rpm-master-stats in 
   "running"); a forced reboot recovered. Next candidates: what the ADSP firmware itself keeps
   running (SSC always-on sensors, the registry), and the RPM votes the HLOS holds for LPASS.
 - Not yet checked on q: Wi-Fi and modem wake from system sleep (not in the MPM map).
+- The DCP-first detection is phone-side: 16 plug-ins with the phone awake read SDP/OCP/0x00
+  and never DCP; both DCP cases came with a plug-in to a sleeping phone. Patch 0052 re-runs APSD
+  once: DCP, QC2, re-run, SDP, USB in 10 s.
+- Wi-Fi in sleep: 0/73 pings answered over the 40 min window on q. Not a regression: WoWLAN only
+  wakes on magic packet and disconnect, pings never woke the phone (kernel m timed out too).
+- Wanze 4d2f6cd + 56a8b01 on the phone (realtime OnCalendar timer, one row per wake).
