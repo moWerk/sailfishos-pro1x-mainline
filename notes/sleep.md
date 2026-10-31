@@ -239,3 +239,15 @@ holders of bi_tcxo/xo, interconnect sleep votes; then MPM + rpm-master-stats in 
   (providers of fsgen and the mclk outputs), and their pm_clk resume prepares the q6afe clocks.
   Read `/sys/kernel/debug/clk/<name>/clk_prepare_count` instead. So the audio votes do not keep
   the ADSP awake; no audio patch.
+- Kernel p result (10 min unplugged): APSS shutdowns 326 -> 8965 (the RPM sees the CPUs sleep
+  for the first time), MPM genpd off, no stalls, timers on time. But USB answered only 868 s
+  after VBUS on, and the system state was rejected 13431 times: the SPMI arbiter (power key,
+  RTC, typec) still went to the GIC, which is off in system sleep. Kernel q routes it through
+  MPM pin 86 (as agatti): USB 4 s after VBUS on, system state 690 uses / 50 rejections, 81 %
+  frozen over 5 min, 0 stalls.
+- XO shutdown still 0 on q. The ADSP never sleeps (shutdown count 0, bitmask 0x1), and it is not
+  the audio clocks (see the correction above) nor the sensor daemons. Stopping remoteproc1 to
+  test it hung in the APR teardown (q6afe "packet not transmitted", remoteproc stayed
+  "running"); a forced reboot recovered. Next candidates: what the ADSP firmware itself keeps
+  running (SSC always-on sensors, the registry), and the RPM votes the HLOS holds for LPASS.
+- Not yet checked on q: Wi-Fi and modem wake from system sleep (not in the MPM map).

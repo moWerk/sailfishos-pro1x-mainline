@@ -17,7 +17,7 @@ experience, not merged as is. Every decision that was taken is written down here
 | Area | State | Where |
 |---|---|---|
 | OS | SailfishOS 5.2.0.22, upgraded in place from 5.1.0.11; Jolla Store, OS update page, accounts and sync from `patterns-sailfish-consumer-generic` | `notes/sfos-5.2-upgrade.md`, `scripts/stage1-base.sh` |
-| Kernel | own 7.3.0-qx1050: v7.3 + 48 patches (`kernel/patches-7.3/`, what each is and its upstream status in `kernel/HANDOVER.md`) | `kernel/` |
+| Kernel | own 7.3.0-qx1050: v7.3 + 51 patches (`kernel/patches-7.3/`, what each is and its upstream status in `kernel/HANDOVER.md`) | `kernel/` |
 | Mobile data | works, toggle in Settings works: ofono patch 0020 (DPM open port, QMAPv4 with DL aggregation, bind without client type), rmnet links with MAPv4 checksum offload | `patches/ofono/`, `sparse/usr/bin/droid/qx1050-modem-prep.sh` |
 | Calls, SMS | calls connect both ways, ringtone plays, SMS; Settings > SIM cards (`jolla-settings-networking-multisim`) | |
 | Call audio | **works** both ways on the earpiece and the speaker, switching between them takes about 2 s, volume keys set the call volume (2026-10-29). The codec DMA back ends stall on every start in the call profile; the helper restarts them. Bluetooth earbuds in calls, wired headset and an echo canceller still open | `packages/qx1050-voicecall/README.md` |
