@@ -181,3 +181,22 @@ holders of bi_tcxo/xo, interconnect sleep votes; then MPM + rpm-master-stats in 
 - 17:28:39: a-d-b's stray-SSH aligner power-cycled the port unasked (it probes the AsteroidOS
   default 192.168.2.15, the phone is on .19); no measurement was running. a-d-b is fixing it; take
   its hold on the port for test windows.
+
+## Sleep OCV and XO shutdown (2026-10-31 evening)
+
+- 0044 never anchored: QG_STATUS2 0x03 (GOOD_OCV set), S3 OCV 0x5471 = 4.2075 V, unchanged.
+  The QG takes an S3 OCV only after the battery current stays under its S3 entry threshold for
+  a few FIFO samples (binding qcom,s3-entry-ibat-ua, 0-155 mA; we do not program it, so the
+  hardware default applies). With XO never shut down, sleep current stays above it; the
+  latched value is from resting on the charger at 0 mA. 0044 waits on XO shutdown.
+- rpm_master_stats did not autoload (no match on boot; `modprobe rpm_master_stats` works).
+  Kernel n, 34 min up, mostly on USB: MPSS 6353 XO shutdowns, CDSP 244, APSS 0 (never a
+  shutdown reported to the RPM), ADSP 0 with active-core bitmask 0x1, TZ 0.
+- Mainline sm6115 has no system-level domain idle state. Downstream bengal-pm.dtsi has a
+  "system" level above the clusters (system-wfi 0, system-pc 3, psci-mode-shift 8). Without it
+  the APSS never asks the RPM for sleep, so XO shutdown cannot happen whatever the other masters
+  do. A system level means the GIC is off in sleep and wakeups go through the MPM, which needs
+  the vMPM wakeup timer that mainline does not write (see the MPM entry above). So the order
+  is: MPM as the system-level domain, plus the timer, plus a system PSCI state (by the encoding
+  0x42000343: affinity level 2, system 3, cluster 4, CPU 3; to be checked against the firmware).
+  ADSP's bitmask 0x1 is a second, separate blocker.
