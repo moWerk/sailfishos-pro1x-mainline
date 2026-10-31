@@ -78,3 +78,22 @@ holders of bi_tcxo/xo, interconnect sleep votes; then MPM + rpm-master-stats in 
 - Restarting connman to enable debug: SIGUSR2 is not a debug toggle in this connmand, it
   killed it (systemd restarted it). Debug per file instead: `CONNMAN_ARGS=-d <files>` in
   /var/lib/environment/connman/*.conf.
+
+## MPM, connman hold-off, charge limit (2026-10-31)
+
+- Kernel i (patches 0038/0039): MPM up (`qcom_mpm` on GIC 229), the PSCI domain tree in OSI mode
+  after one deferral. Power key, slide, double tap and SMS still wake. vlow/vmin after a real
+  sleep: not yet read.
+- connman 1.40+git26.6-100.qx1050 (`patches/connman/0001`, autoscan hold-off as a plain timer)
+  installed with the kernel i boot. Whether the minute wake is gone: needs a sampled night.
+- Charge limit overshoot: the PMI632 charges on during suspend, mce only acts on capacity
+  updates, and the battery driver does not poll in suspend. After the reboot mce switched
+  charging off at 8 s, on again at 184 s (below its 85 % resume threshold), and the phone then
+  slept on the charger to 89 %. Patch 0040 keeps the system awake while charging; with the limit
+  at 90 % it held the wakeup source for 95 s, released it when mce wrote 0, and the phone slept on
+  at 0 mA battery current. The estimate settled from 90 to 88 % right after the stop at 4.196 V
+  (reads low in that range; gauge item).
+- Wanze recorded nothing from 22:51 to 02:37: after each boot wanze.timer was "elapsed" with no
+  trigger (systemd 238, OnBootSec). Restarted by hand; drop-in
+  `wanze.timer.d/10-qx1050-onactive.conf` (OnActiveSec=2min), not yet checked across a reboot.
+
