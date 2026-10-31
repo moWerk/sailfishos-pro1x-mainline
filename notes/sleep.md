@@ -140,7 +140,22 @@ holders of bi_tcxo/xo, interconnect sleep votes; then MPM + rpm-master-stats in 
   `0x40000003` with `0x41000043`.
 - Test (kernel m Image, dtb patched to `0x41000043` for cluster-sleep-0-1 and -1-1): in the
   first minute cluster S1 usage 374/148 with 19/4 rejections. GDHS (`0x40000022`/`0x40000042`)
-  is still rejected by the ten thousand; not changed yet. Downstream bengal's lpm-levels would
-  say which values this firmware accepts; not yet checked.
+  is still rejected by the ten thousand; not changed yet.
+- Downstream `bengal-pm.dtsi` (android_kernel_fxtec_sm6115, lpm-levels) gives the encoding: CPU
+  mode in bits 0-3 (wfi 1, pc 3; no rail collapse), cluster mode in bits 4-7 (shift 4: l2-wfi 1,
+  l2-gdhs 2, l2-pc 4), system mode in bits 8-11 (shift 8: system-pc 3), plus the PSCI affinity
+  level in bits 24-25 and power-down in bit 30. Cluster PC over CPU PC is therefore `0x41000043`
+  (agatti's value), cluster GDHS `0x41000023` on both clusters; mainline's GDHS values
+  `0x40000022`/`0x40000042` lack the affinity bit, and the cluster1 one carries the PC field.
 - Kernel h (no MPM, no 0038) probably ran OSI too (kernel m sets the topology up at 0.07 s with
   no deferral), but no h boot log with the line survives; its ~100 mA night stays unexplained.
+- Result, PC `0x41000043` only (15:28-16:02, 34 min unplugged): 1940 s of 2025 s frozen (96 %, kernel
+  m 50 %), 0 RCU stalls (kernel m 6), s2idle entries 39/35 instead of millions, cluster S1 entered
+  in s2idle. Voltage 4.261 -> 4.216 V, both at about 0 mA; the 97 -> 90 % gauge figure starts from
+  the boot jump and says nothing. Then with GDHS `0x41000023` as well: 2 min after boot cluster0
+  GDHS used 3509x with 318 rejections (before: 0 and 57 k), cpu0 PC rejections 518 (before
+  12.8 k). Patch 0045 (w-73 4b7f598e0) puts both values into sm6115.dtsi. The phone runs the
+  dtb patched in place (scratchpad fdtpatch.py), kernel m's Image.
+- Still open: a real drain figure (needs an unplugged window long enough for the voltage, or a
+  night), XO shutdown (vlow/vmin still 0: no MPM, no system level), USB answering 4-5 min after
+  VBUS on rather than at once.
