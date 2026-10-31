@@ -200,3 +200,6 @@ holders of bi_tcxo/xo, interconnect sleep votes; then MPM + rpm-master-stats in 
   is: MPM as the system-level domain, plus the timer, plus a system PSCI state (by the encoding
   0x42000343: affinity level 2, system 3, cluster 4, CPU 3; to be checked against the firmware).
   ADSP's bitmask 0x1 is a second, separate blocker.
+- Perspective on 0045: by gauge the fixed dtb does ~4 %/h unplugged, kernel h did ~3 %/h (2 % in
+  39 min). 0045 removes the regression that OSI mode with refused cluster states caused; it does
+  not lower the floor, which is XO never shutting down.
