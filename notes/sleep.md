@@ -159,3 +159,18 @@ holders of bi_tcxo/xo, interconnect sleep votes; then MPM + rpm-master-stats in 
 - Still open: a real drain figure (needs an unplugged window long enough for the voltage, or a
   night), XO shutdown (vlow/vmin still 0: no MPM, no system level), USB answering 4-5 min after
   VBUS on rather than at once.
+- 60 min unplugged on the fixed dtb (16:05-17:06): 3499 s of 3622 s frozen (96.6 %), awake ~2 min
+  in the hour, 0 RCU stalls, 9 failed suspend attempts; gauge 90 -> 86 % (~4 %/h against ~9 %/h on
+  kernel m; the end reading was under charge). XO shutdown still 0: that is the floor now.
+
+## USB after plug-in (kernel n, 2026-10-31)
+
+- The 4-5 min until USB answered after VBUS on: nothing woke the phone on plug-in. The charger
+  driver polls, and the PMIC Type-C port's interrupts were not wake sources. Patch 0046 makes
+  VBUS, CC state and attach/detach wake sources (with `wakeup-source`, 0047). Three plug-ins
+  after 4 min asleep: resumed within 2 s each time.
+- Once (round 1) USB still came up only after 375 s: the A16 hub port first read as a charger
+  (APSD 0x08 DCP, then 0x28 DCP+QC2.0), so usb_moded stayed in charger mode, until APSD read 0x04
+  (CDP) at 17:17:27. Other plugs read 0x04 or 0x02 (OCP). Asked a-d-b whether the port does this
+  at power-on. `typec port0-partner: PM: parent port0 should not be sleeping` with an aborted
+  suspend at each plug-in during suspend entry: the wake doing its job, noise.
