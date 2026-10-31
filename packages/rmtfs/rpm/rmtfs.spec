@@ -1,7 +1,7 @@
 Name:       rmtfs
 Version:    1.3
-Release:    1
-Summary:    Qualcomm remote filesystem service (read-only use)
+Release:    2
+Summary:    Qualcomm remote filesystem service
 License:    BSD-3-Clause
 URL:        https://github.com/linux-msm/rmtfs
 Source0:    %{name}-%{version}.tar.bz2
@@ -9,9 +9,11 @@ BuildRequires: pkgconfig(libudev)
 BuildRequires: qrtr-devel
 
 %description
-Serves the modem's EFS partitions (modemst1/2, fsg, fsc) over QMI.
-The service runs as "rmtfs -r -P -s": -r is read-only, the modem's partitions
-on the phone are never written. Packaged for the F(x)tec Pro1-X mainline SailfishOS port.
+Serves the modem's EFS (modemst1/2, fsg, fsc) over QMI.
+On the Pro1-X port the service runs from files ("rmtfs -o /var/lib/rmtfs -s",
+droid-config's rmtfs.service.d): qx1050-rmtfs-seed copies the four partitions
+into /var/lib/rmtfs once, and the modem's writes land there, never on the
+partitions. Packaged for the F(x)tec Pro1-X mainline SailfishOS port.
 
 %prep
 %autosetup -n %{name}-%{version}/upstream

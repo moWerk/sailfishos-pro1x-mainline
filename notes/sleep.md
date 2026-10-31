@@ -97,3 +97,24 @@ holders of bi_tcxo/xo, interconnect sleep votes; then MPM + rpm-master-stats in 
   trigger (systemd 238, OnBootSec). Restarted by hand; drop-in
   `wanze.timer.d/10-qx1050-onactive.conf` (OnActiveSec=2min), not yet checked across a reboot.
 
+
+## The night of 10-31 on kernel i, and USB after suspend (2026-10-31)
+
+- 88 -> 25 % overnight unplugged (the gauge jumps; by voltage 4.196 -> 3.754 V, about 1.5 Ah in
+  7.6 h, ~200 mA average; kernel h's rough figure the day before was ~100 mA). 287 suspend
+  attempts, only ~25 min awake between them, so not the minute wake. But the printk clock ran
+  9130 s inside suspend spans: a third of the "sleep" never reached the frozen s2idle state.
+  36 RCU stalls during s2idle (one CPU busy, the others in cpuidle_enter_s2idle); kernel h: 1 in
+  53 suspends. vlow/vmin still 0 with the MPM.
+- USB data dies after suspend: after 5-19 suspends the gadget stays "not attached" (DCTL RunStop
+  set, HS link "disconnected", no event on the host), a reboot restores it. Suspect: the USB30
+  GDSC is PWRSTS_OFF_ON on sm6115, the glue writes the QSCRATCH VBUS override only at probe, so it
+  is lost when the domain powers off in suspend. sc7180/sm6350/sm6375/sm8250 use PWRSTS_RET_ON
+  for this domain. Kernel k (w-73 04e273465) does the same; not yet run. Check first:
+  `qscratch.py` reads HS_PHY_CTRL (0x4ef8810) bit 20/28 after a suspend, `qscratch.py set`
+  rewrites them.
+- Wanze: systemd 238 drops a monotonic timer's first elapse if the system suspends before it is
+  due (reproduced twice with the first suspend at 66 s); OnActiveSec does not help (tested).
+  Handed to a-d-b; its proposal is to start wanze.service once at boot instead of OnBootSec.
+- 12:15, end of a 45 min unplugged window on kernel i (pm_debug_messages on): the phone did not
+  come back on VBUS and answers neither Wi-Fi nor USB. Not seen before on this kernel.
