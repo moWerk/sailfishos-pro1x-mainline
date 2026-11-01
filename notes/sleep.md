@@ -345,3 +345,40 @@ audio's q6core/adsp-loader handshakes.
   fine: no USB event all night, charger saw the port as DCP (APSD 0x04), usb_moded stayed in
   charger mode (the 0046 row's DCP misread). Same after the airplane window in the morning; one
   more VBUS cycle brought it back in 5 s.
+
+## The ADSP's LPASS core vote leaks: q6afe drops the vote handle (2026-11-01 afternoon)
+
+- Mainline logs `qcom-q6afe ...: cmd = 0x100f6 returned error = 0x1` / `Unknown cmd 0x100f6`
+  (seen at 24 s and 121 s on kernel t; earlier filed as harmless). 0x100f6 is
+  `AFE_CMD_REMOTE_LPASS_CORE_HW_DEVOTE_REQUEST`: the ADSP refuses every devote.
+- Cause: the DSP answers the vote with the client handle it assigned (`payload[0]`, the token
+  echoes the hw block; downstream stores it in `lpass_hw_core_client_hdl[token]`). Mainline's
+  callback reads that payload as a basic result and never fills `*client_handle`, so each devote
+  names a handle the DSP never handed out and the vote stays. The HLOS clock counts are balanced
+  (as found on kernel q); the leak is on the DSP side, invisible from clk debugfs.
+- Patch 0054 keeps the handle per hw block and returns it; the devote result is a known command.
+  q6afe is a module, so the test is kernel t + the new `q6afe.ko` (kernel x build, only q6afe.o
+  changed).
+- Result: no 0x100f6 errors; the ADSP power-collapses on mainline for the first time (91 XO
+  shutdowns 2 min after boot, `Last bringup req` non-zero, 108 after a 5 min window).
+- Why the earlier `apr` block test still read 0 is open: with no APR there is no vote at all.
+  Possibly the LPASS core starts voted at ADSP boot and only a devote releases it; not shown.
+- Sleep current did not drop: kernel t + 0054 one 148 s sleep at 55.8 mA; kernel w (below) +
+  0054 53 mA, against 49.4 (kernel t) and 45.3 (kernel w) without it. Fresh boots, single
+  windows; an A/B on the same kernel is next.
+- Kernel w, a re-run of 0050/0051 as a dtb edit (done again by mistake, the notes above already
+  had it): APSS 384 shutdowns while awake, 967 after a window, system state used in s2idle.
+  With 0054 too, every master power-collapses in one window (APSS 1234, ADSP 98, MPSS 1018,
+  CDSP 64), yet APSS XO shutdown 0 and vlow/vmin 0: the APSS still holds an XO vote. Awake,
+  `bi_tcxo` (RPM_SMD_XO_CLK_SRC, the sleep-set XO) has 31 prepares, behind it gpll0 (UFS, USB,
+  QUP s3), the USB mock_utmi/phy_aux RCGs and dispcc mdss_ahb. Which of these stay prepared in
+  suspend is the next probe (clksleep, a noirq-suspend snapshot of 226 rpmcc/gcc/dispcc/gpucc
+  clocks; its first version also sampled from the CPU PM idle path and hung the phone).
+- Downstream reference, AP held awake by a wakelock and unplugged: ADSP 0x2b4 -> 0x2ee shutdowns
+  in 2.5 min, APSS XO shutdowns 0xa46, RPM vmin +450/min. Downstream reaches vmin from cpuidle
+  alone, not only in suspend. Downstream's root `interrupt-parent` is its MPM GIC wrapper, but
+  its pin map (qcom-mpm-bengal.c) has no modem lines either, so its modem wake from system-pc
+  does not come from MPM pins; the mechanism is still not found.
+- Also closed: the ADSP's `cpuv_restriction_cold` QMI cooling device (TMD service 0x18,
+  instance 1) reads level 0 on mainline without any client, as do the modem's and CDSP's TMDs;
+  not a vdd floor. LPASS clock prepare counts sampled 120x over 60 s: always 0.
