@@ -271,3 +271,21 @@ holders of bi_tcxo/xo, interconnect sleep votes; then MPM + rpm-master-stats in 
 - Wi-Fi in sleep: 0/73 pings answered over the 40 min window on q. Not a regression: WoWLAN only
   wakes on magic packet and disconnect, pings never woke the phone (kernel m timed out too).
 - Wanze 4d2f6cd + 56a8b01 on the phone (realtime OnCalendar timer, one row per wake).
+
+## Sleep current measured directly (2026-11-01 night)
+
+- The PMI632 QG keeps sampling while the SoC sleeps (S2: 256 samples x 300 ms per FIFO entry,
+  8 entries). A debug module (qgsleep: clears the FIFO with the downstream master hold/clear at
+  PM_SUSPEND_PREPARE, reads FIFO and the real-time accumulator at PM_POST_SUSPEND) prints the
+  mean battery current of every sleep. Awake on USB the FIFO stays empty.
+- Kernel s, screen off, unplugged, 4 min windows: baseline 79 mA; sensorfwd + hexagonrpcd
+  stopped 79.7 mA. Three windows meant as Wi-Fi/BT/airplane changed nothing (connmanctl is not
+  installed) and read 80.9 / 82.8 / 81.5 mA: the spread is about +-2 mA. ~80 mA matches the
+  4 %/h seen before, and is 5-10x what this class of SoC should draw with XO on.
+- Suspect, untested: TLMM 65 is high with the screen off. On bengal-idp downstream it is the
+  panel's `qcom,platform-en-gpio`; in our DT it is only a pinctrl state and the panel's four
+  supplies are dummy fixed regulators, so nothing ever switches it.
+- The SMEM subsystem sleep records (605 modem, 606 ADSP, 607 CDSP) exist but read 0 for all
+  three, the modem included while the RPM counts its shutdowns: not maintained on this firmware.
+- The ADSP is quiet (6 glink interrupts in 30 s) yet never sends a bringup request to the RPM.
+- USB did not come back after the 7th window (01:07), no 900e; series stopped.
