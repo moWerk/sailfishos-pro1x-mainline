@@ -295,6 +295,8 @@ holders of bi_tcxo/xo, interconnect sleep votes; then MPM + rpm-master-stats in 
 - Fix (kernel t, dtb only): GPIO 65 becomes the enable of `disp_vci_supply` (enable-active-high,
   regulator-boot-on, the panel_en_n pinctrl moved from the panel to the regulator). The
   bf060y8m-aj0 driver enables VCI last and disables it first, the downstream order.
+  On the phone 09:48: display and power key fine; with the screen off VCI is disabled and
+  GPIO 65 low; two windows 49.5 / 49.3 mA. Source form: patch 0053. Kernel t is the daily.
 - The SMEM subsystem sleep records (605 modem, 606 ADSP, 607 CDSP) exist but read 0 for all
   three, the modem included while the RPM counts its shutdowns: not maintained on this firmware.
 - The ADSP is quiet (6 glink interrupts in 30 s) yet never sends a bringup request to the RPM.
