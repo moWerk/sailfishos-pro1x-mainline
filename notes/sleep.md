@@ -297,6 +297,11 @@ holders of bi_tcxo/xo, interconnect sleep votes; then MPM + rpm-master-stats in 
   bf060y8m-aj0 driver enables VCI last and disables it first, the downstream order.
   On the phone 09:48: display and power key fine; with the screen off VCI is disabled and
   GPIO 65 low; two windows 49.5 / 49.3 mA. Source form: patch 0053. Kernel t is the daily.
+- The other outputs high in sleep on kernel t: TLMM 26 (pm8008), 68 (haptics), 71 (touch),
+  92 (WCD937x), 111 (keyboard expander) are reset lines held deasserted by their drivers, as
+  intended. TLMM 34, PM6125 GPIO 1 and PMI632 GPIO 6 (the reference boards' LCD backlight
+  enable) are unclaimed, high from the bootloader; all three held low: 47.7 mA against 49.4,
+  inside the +-2 mA spread. Nothing more in GPIOs; the rest is XO staying on (the ADSP).
 - The SMEM subsystem sleep records (605 modem, 606 ADSP, 607 CDSP) exist but read 0 for all
   three, the modem included while the RPM counts its shutdowns: not maintained on this firmware.
 - The ADSP is quiet (6 glink interrupts in 30 s) yet never sends a bringup request to the RPM.
