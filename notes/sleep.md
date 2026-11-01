@@ -318,6 +318,26 @@ votes released). The master stats node matches downstream bengal-pm.dtsi (0x45f0
 per master, APSS MPSS ADSP CDSP TZ). So the ADSP stays awake by its own choice from boot on,
 with no client. Next: a downstream reference reading (hybris Pro1-X, same firmware): does this
 ADSP firmware ever power-collapse there, and what does the HLOS do at ADSP boot that we don't.
+
+Downstream reference (hybris Pro1-X, 4.19.157 halium, same ADSP build ADSP.VT.5.4.1-00376-KAMORTA-2):
+awake on USB the ADSP also stays up (11 shutdowns, all in early boot, then none to 280 s; vlow
+and vmin 0). Unplugged with the screen off for ~30 min: ADSP 456 shutdowns / 455 XO
+shutdowns, RPM vmin 1129, last vmin sleep 320 s, 42 suspends. So the firmware can sleep; on
+mainline it does not, also in suspend.
+
+Mainline suspended, each a 5 min QG window on kernel t/u:
+- sensor stack never started at boot: ADSP 0, vmin/vlow 0, 48 mA
+- kernel u (`qcom,vmids = <22 37>` on the ADSP fastrpc node, as downstream
+  `qcom,adsp-remoteheap-vmid`) + the audio static PD created (INIT_CREATE_STATIC "audiopd",
+  3 MB as qualcomm/fastrpc adsprpcd audiopd) + hexagonrpcd attached to the root PD: ADSP 0,
+  46.7 mA. The audio PD comes up cleanly; the root PD at once asks for `lowi/lowi_lp.conf`,
+  which hybris lacks too.
+
+Same on both sides: glink channels to the ADSP, SMP2P sleepstate (bit 12, out + `_see` in),
+master stats layout, the in-kernel pd-mapper has the sm6115 domains, no clk_ignore_unused,
+RPM QDSS/IPA/snoc_lpass and all LPASS clocks at 0, ADSP glink traffic 12 interrupts/min (as
+the CDSP, which sleeps). Downstream extra, not yet tried: smp2p `rdbg` entries; downstream
+audio's q6core/adsp-loader handshakes.
 - The SMEM subsystem sleep records (605 modem, 606 ADSP, 607 CDSP) exist but read 0 for all
   three, the modem included while the RPM counts its shutdowns: not maintained on this firmware.
 - The ADSP is quiet (6 glink interrupts in 30 s) yet never sends a bringup request to the RPM.
