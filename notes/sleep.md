@@ -302,6 +302,22 @@ holders of bi_tcxo/xo, interconnect sleep votes; then MPM + rpm-master-stats in 
   intended. TLMM 34, PM6125 GPIO 1 and PMI632 GPIO 6 (the reference boards' LCD backlight
   enable) are unclaimed, high from the bootloader; all three held low: 47.7 mA against 49.4,
   inside the +-2 mA spread. Nothing more in GPIOs; the rest is XO staying on (the ADSP).
+
+## The ADSP never sleeps, whatever runs on the HLOS side (2026-11-01)
+
+RPM master stats, ADSP: shutdown count 0, last bringup request 0, read 3-4 min after boot
+(CDSP 97 shutdowns in the same time). Kernel t, each case a fresh boot:
+
+- normal boot; sensorfwd and hexagonrpcd stopped 60 s, PulseAudio frozen 60 s: 0
+- sensorfwd masked and hexagonrpcd disabled at boot, nothing holds /dev/fastrpc-adsp: 0
+- also `apr` blocked (no q6 audio/voice services; macros, LPI pinctrl, SoundWire unbound): 0
+
+HLOS side clean in all of them: every LPASS clock (q6afe-clocks incl. the vote clocks) at
+prepare/enable 0, lpi_cx/lpi_mx genpds off, all three q6v5 handover interrupts fired once (proxy
+votes released). The master stats node matches downstream bengal-pm.dtsi (0x45f0150, 0x1000
+per master, APSS MPSS ADSP CDSP TZ). So the ADSP stays awake by its own choice from boot on,
+with no client. Next: a downstream reference reading (hybris Pro1-X, same firmware): does this
+ADSP firmware ever power-collapse there, and what does the HLOS do at ADSP boot that we don't.
 - The SMEM subsystem sleep records (605 modem, 606 ADSP, 607 CDSP) exist but read 0 for all
   three, the modem included while the RPM counts its shutdowns: not maintained on this firmware.
 - The ADSP is quiet (6 glink interrupts in 30 s) yet never sends a bringup request to the RPM.
