@@ -282,10 +282,23 @@ holders of bi_tcxo/xo, interconnect sleep votes; then MPM + rpm-master-stats in 
   stopped 79.7 mA. Three windows meant as Wi-Fi/BT/airplane changed nothing (connmanctl is not
   installed) and read 80.9 / 82.8 / 81.5 mA: the spread is about +-2 mA. ~80 mA matches the
   4 %/h seen before, and is 5-10x what this class of SoC should draw with XO on.
-- Suspect, untested: TLMM 65 is high with the screen off. On bengal-idp downstream it is the
-  panel's `qcom,platform-en-gpio`; in our DT it is only a pinctrl state and the panel's four
-  supplies are dummy fixed regulators, so nothing ever switches it.
+- TLMM 65 is high with the screen off. The Fxtec downstream DT (bengal-idp.dtsi, panel node
+  `dsi_sw43404_boe_fhd_video`) gives it as the panel's `qcom,platform-en-gpio`: dsi_panel.c
+  drives it high after all panel rails and before reset, low first at power off. In our DT it
+  is only a pinctrl state and the panel's four supplies are dummy fixed regulators, so nothing
+  ever switches it; the bootloader leaves it high.
+- 2026-11-01 morning, same conditions, GPIO 65 held low from userspace (GPIO v2 uAPI):
+  48.5 mA; baseline right after with it high again 72.9 mA. Two more windows still had it low
+  (the holder's sleep stops in suspend): 55.0 mA with BT off, ~55 mA in airplane mode, so BT
+  and the radios show no saving. Wi-Fi off (from the night, recovered from dmesg): 77.6 mA.
+  GPIO 65 is worth 20-25 mA, about a third of the sleep drain.
+- Fix (kernel t, dtb only): GPIO 65 becomes the enable of `disp_vci_supply` (enable-active-high,
+  regulator-boot-on, the panel_en_n pinctrl moved from the panel to the regulator). The
+  bf060y8m-aj0 driver enables VCI last and disables it first, the downstream order.
 - The SMEM subsystem sleep records (605 modem, 606 ADSP, 607 CDSP) exist but read 0 for all
   three, the modem included while the RPM counts its shutdowns: not maintained on this firmware.
 - The ADSP is quiet (6 glink interrupts in 30 s) yet never sends a bringup request to the RPM.
-- USB did not come back after the 7th window (01:07), no 900e; series stopped.
+- USB did not come back after the 7th window (01:07), no 900e; series stopped. The phone was
+  fine: no USB event all night, charger saw the port as DCP (APSD 0x04), usb_moded stayed in
+  charger mode (the 0046 row's DCP misread). Same after the airplane window in the morning; one
+  more VBUS cycle brought it back in 5 s.
