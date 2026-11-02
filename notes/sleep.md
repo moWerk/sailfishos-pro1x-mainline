@@ -442,3 +442,18 @@ Kernel zz-yw2 (0050, 0054-0057), screen off, unplugged, QG windows.
   through them, and each ends with the RTC alarm: the modem stays up, probably on traffic it
   cannot wake the APSS for (the same gap as the late SMS). Modem glink is IRQ 209 (SPI 68),
   smp2p-mpss IRQ 18 (SPI 70), both without wake arming; glink-smem requests IRQF_NO_SUSPEND.
+- Why dwc3 stays active (2026-11-02 morning, kernel zd = zz + CONFIG_PM_ADVANCED_DEBUG): unplugged
+  it shows runtime_usage 0 and no active children, yet stays active, also with the UDC unbound.
+  The suspend is never tried: the 5000 ms autosuspend delay runs on timers that stop in s2idle,
+  the wakes last a few seconds, and dwc3's system resume resets the runtime state, which drops
+  the pending timer. It suspends only when the phone happens to stay awake 5 s after the unplug
+  (the boots where it worked). With autosuspend_delay_ms 0 it was suspended in every unplugged
+  snapshot, but a replug then never enumerated (it re-suspends before the host resets it).
+- Also seen: the legacy glue (dwc3-qcom-legacy) sets VBUS valid at probe for good (no extcon in
+  the DT), so an unplug can look like a bus suspend (link Suspend). A flattened node
+  (`qcom,sm6115-dwc3`, `qcom,snps-dwc3`, as agatti upstream; the binding has sm6115) works with
+  dwc3-qcom, whose role hook clears VBUS valid; on its own it did not change the suspend, and
+  with autosuspend 1000 ms the phone hung in a suspend (no oops in the RAM dump, watchdog, 900e).
+  Back on zz-yw2 with the legacy node.
+- With dwc3 suspended the clean sleeps still read 34-38 mA in that boot, so the 29-32 mA of the
+  night boot is not explained by USB alone. Open.
