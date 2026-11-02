@@ -382,3 +382,35 @@ audio's q6core/adsp-loader handshakes.
 - Also closed: the ADSP's `cpuv_restriction_cold` QMI cooling device (TMD service 0x18,
   instance 1) reads level 0 on mainline without any client, as do the modem's and CDSP's TMDs;
   not a vdd floor. LPASS clock prepare counts sampled 120x over 60 s: always 0.
+
+## vmin on mainline: UFS clocks, UFS PHY retention, dispcc XO (2026-11-02)
+
+- clksleep, fixed: `of_clk_get_from_provider()` returns NULL, not an error, for unpopulated
+  indices; the earlier builds kept those and oopsed in noirq suspend (three hangs, no log). Now
+  `IS_ERR_OR_NULL` and the snapshot is read from debugfs after the wake.
+- In suspend `bi_tcxo` was held by two chains: the UFS clocks through gpll0, and
+  `disp_cc_mdss_ahb_clk` -> `disp_cc_mdss_ahb_clk_src` -> `bi_tcxo`.
+- UFS: prepare and enable counts climbed by one per runtime resume (125 -> 132 in 40 s, >130
+  after 15 min), so the clocks never stopped, even with the host runtime-suspended. Upstream
+  fixed it in the 7.4 merge window (f07317a8d57f): the lane clock helpers enabled every host
+  clock. Backported as 0055. A guard of my own in `ufs_qcom_enable_lane_clks()` first stopped the
+  leak but kept bulk-disabling the core clocks; dropped.
+- With the UFS clocks really gating, every system-domain suspend risked a crash: UFS PA error in
+  suspend, hibern8 exit (UIC 0x18) timeout, SError in `ufshcd_err_handler`, panic, watchdog,
+  crash dump (05c6:900e). The log came from a RAM dump (an own pyusb Sahara memory-debug client:
+  HELLO, HELLO_RESP mode 2, MEMORY_READ_64 of the debug table and DDR; the printk ring buffer
+  greps fine). Same signature as upstream's Milos fix (PHY state lost in system suspend), so
+  0056 sets `no_phy_retention` (spm_lvl 5). Sahara RESET (cmd 7) reboots out of crash dump mode
+  without the power key; `kernel.panic=5` makes a panic reboot instead of waiting for the
+  watchdog.
+- dispcc: the DSI PHY's pm_clk keeps its iface clock prepared for good (pm_clk prepares at add
+  time). 0057 feeds dispcc from RPM_SMD_XO_A_CLK_SRC.
+- Result with 0050 (system domain), 0054, 0055, 0056, 0057: nothing on `bi_tcxo` in suspend,
+  RPM vmin for 85 % of 5 min windows (37.5, 40.4 mA) and 84 % of a 15 min window (45.0 mA,
+  wakeups: IPA 7, RTC 4, WLAN 1, VBUS 1). A/B without 0057: `bi_tcxo` held, vmin 0, 74.9 mA.
+  On the daily dtb (no system domain) the APSS never makes an RPM-level sleep, so the XO fixes
+  cannot show there (kernel z: 56.4, 59.9 mA).
+- Still open for the daily kernel: modem wake from system sleep (0050's late SMS/calls). The
+  IPA interrupt (SPI 289, not MPM-mapped) did wake the system from s2idle with the system
+  domain, so unmapped modem-side interrupts may wake after all; needs a timed SMS test.
+- Display on/off with 0057 not yet checked.
