@@ -493,3 +493,8 @@ Kernel zz-yw2 (0050, 0054-0057), screen off, unplugged, QG windows.
   (900e) with nothing more in the log (RAM dump `ramdump-zf`); whether that happens on modem
   recovery without 0058 too (the October note "stopping remoteproc0 crashes the kernel"
   suggests so) is open. Also open: whether the WLAN firmware assert recurs.
+- Same test on the original qcom_glink_smem.ko (without 0058), 18:13: the recovery runs the same way
+  to "remote processor modem is now up", then the phone goes into crash dump mode with nothing more
+  in the log (RAM dump `ramdump-orig`). So the silent crash after a modem recovery predates 0058;
+  0058 (fixed) neither causes nor cures it. Any modem crash (the WLAN firmware one included) takes
+  the phone down to 900e until a long power press. Open, its own item.
