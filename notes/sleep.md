@@ -430,6 +430,13 @@ Kernel zz-yw2 (0050, 0054-0057), screen off, unplugged, QG windows.
   instead of 40-42 (two windows), a 30 min window 34.0 mA mean with vmin 95 %. USB gadget mode
   comes back on replug. droid-config: `70-qx1050-usb-runtime-pm.rules` (at bind, since probe
   resets the attribute).
+- Correction (after a reboot, 06:21-09:00): the rule sets `auto` at boot, but in that boot dwc3
+  never runtime-suspended unplugged (90 min window 39.6 mA, clean sleeps 34-39). Unplugged:
+  role device, UDC "not attached", link Suspend; usb_moded mode "undefined" with the rndis
+  gadget still bound. Neither an on/auto toggle after the unplug nor unbinding the UDC let it
+  suspend, so a runtime-PM reference is held that the earlier boot did not have. The rule is
+  necessary, not sufficient; finding the holder needs CONFIG_PM_ADVANCED_DEBUG (runtime_usage,
+  runtime_active_kids).
 - Remaining spikes: some sleeps read 110-170 mA for minutes. A per-wake log (/root/snaploop.sh:
   vmin, per-master XO and shutdown counts) shows MPSS neither sleeping nor counting a shutdown
   through them, and each ends with the RTC alarm: the modem stays up, probably on traffic it
