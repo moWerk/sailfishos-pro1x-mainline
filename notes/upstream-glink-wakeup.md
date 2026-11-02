@@ -1,6 +1,6 @@
 # Upstream prep: glink-smem edge wakeup (0058-0060)
 
-Status 2026-11-02 23:20: written, **nothing sent**. Needs the author's read-back and
+Status 2026-11-02 22:50: written, **nothing sent**. Needs the author's read-back and
 Signed-off-by before anything goes out.
 
 ## The series
