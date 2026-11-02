@@ -1,0 +1,38 @@
+From fca6da5f264baa55c7e0d06e467d729b2f2d83da Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Mon, 2 Nov 2026 15:55:20 +0100
+Subject: [PATCH 59/60] dt-bindings: remoteproc: qcom,glink-edge: Allow
+ wakeup-source
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+An incoming message on an edge, such as an SMS or call on the modem
+edge, should be able to wake the system from suspend. Document the
+standard wakeup-source property for the edge node.
+
+Disclosure: LLMGD-2 · origin O1 (the model wrote it; dt_binding_check and dtbs_check for the Pro1-X dtb clean, the property used on the device by the model)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=kernel; graded-by=model; retrieval=none
+---
+ .../devicetree/bindings/remoteproc/qcom,glink-edge.yaml      | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/remoteproc/qcom,glink-edge.yaml b/Documentation/devicetree/bindings/remoteproc/qcom,glink-edge.yaml
+index e78a89c9e..a5fdd568e 100644
+--- a/Documentation/devicetree/bindings/remoteproc/qcom,glink-edge.yaml
++++ b/Documentation/devicetree/bindings/remoteproc/qcom,glink-edge.yaml
+@@ -52,6 +52,11 @@ properties:
+       ID of the shared memory used by GLINK for communication with remote
+       processor.
+ 
++  wakeup-source:
++    description:
++      An incoming message on this edge wakes the system from suspend, e.g.
++      an SMS or call arriving on the modem edge.
++
+ required:
+   - interrupts
+   - label
+-- 
+2.56.0
+

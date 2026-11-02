@@ -457,3 +457,26 @@ Kernel zz-yw2 (0050, 0054-0057), screen off, unplugged, QG windows.
   Back on zz-yw2 with the legacy node.
 - With dwc3 suspended the clean sleeps still read 34-38 mA in that boot, so the 29-32 mA of the
   night boot is not explained by USB alone. Open.
+
+## The modem wakes the system: daily kernel with vmin (2026-11-02, afternoon)
+
+- Mechanism of the late SMS with 0050: the glink-smem edge interrupt is IRQF_NO_SUSPEND, so it
+  is handled in s2idle, but reports no wakeup. Seen in the kernel log: at the SMS the s2idle loop
+  woke (a 124.9 s sleep followed by a 12.4 s one in the same suspend), went back to sleep, and
+  lipstick showed the SMS 0.3 s after the next real wakeup (VBUS). Downstream bengal reports a
+  wakeup from qrtr for every packet from the modem (QRTR_WAKEUP_MS 0).
+- 0058-0060: the edge device reports a hard wakeup event from the interrupt when wakeup is enabled,
+  enabled at boot by `wakeup-source` on the mpss edge node (adsp/cdsp edges stay disabled).
+  SMS while suspended on battery: 6 and ~20 s after sending. A call rang before the caller heard
+  the ringback (author).
+- Cost: the modem edge woke the system 2 times in 60 min; 40.0 mA over 60 min (clean sleeps
+  35-38 mA, a few 48-55), 38.6 mA over 30 min. The 110-170 mA stretches of the night (modem up,
+  waiting for the host until the next RTC alarm) did not appear in these 90 min.
+- The tested dtb had come from in-place dtb edits; the dtb built from the series (MPM node under
+  the RPM, `system-sleep-0`) was booted and measured the same (38.6 mA, vmin ~81 % since boot,
+  no UFS errors). **Daily kernel since 2026-11-02 (kernel zs): Image of kernel zz, dtb and
+  qcom_glink_smem.ko from the series up to 0060.** It has RPM vmin with prompt SMS and calls.
+- sync_state check (a lead from the Pixel Watch port, where GKI's clk hold-state pins every
+  boot-on clock until all consumers of a provider have bound): only gpucc is unsynced here
+  (596a000.gmu has no driver of its own), both GPU GDSCs are off, mainline has no clk hold-state,
+  no interconnect or rpmpd provider is unsynced, nothing deferred. Nothing to gain.

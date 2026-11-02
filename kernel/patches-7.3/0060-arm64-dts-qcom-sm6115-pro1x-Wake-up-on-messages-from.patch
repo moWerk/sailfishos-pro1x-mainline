@@ -1,0 +1,37 @@
+From 7f6f986cde1355cc8f69ca49c0d1fef2a7a29ea4 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Mon, 2 Nov 2026 15:55:20 +0100
+Subject: [PATCH 60/60] arm64: dts: qcom: sm6115-pro1x: Wake up on messages
+ from the modem
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+With the system power domain the CPU only leaves suspend-to-idle on a
+wakeup event. Mark the modem glink edge as a wakeup source, so incoming
+SMS and calls are delivered at once instead of at the next timer wakeup.
+
+Disclosure: LLMGD-2 · origin O1 (the model wrote it; built and tested on the device by the model, SMS sent by the author)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=kernel; graded-by=model; retrieval=none
+---
+ arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts b/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
+index 349749a22..898174961 100644
+--- a/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
++++ b/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
+@@ -995,6 +995,10 @@ ipa_smp2p_in: ipa-modem-to-ap {
+ &remoteproc_mpss {
+ 	firmware-name = "qcom/sm6115/Fxtec/QX1050/modem.mbn";
+ 	status = "okay";
++
++	glink-edge {
++		wakeup-source;
++	};
+ };
+ 
+ &rpm_requests {
+-- 
+2.56.0
+
