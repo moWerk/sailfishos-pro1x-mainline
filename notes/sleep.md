@@ -498,3 +498,7 @@ Kernel zz-yw2 (0050, 0054-0057), screen off, unplugged, QG windows.
   in the log (RAM dump `ramdump-orig`). So the silent crash after a modem recovery predates 0058;
   0058 (fixed) neither causes nor cures it. Any modem crash (the WLAN firmware one included) takes
   the phone down to 900e until a long power press. Open, its own item.
+- 19:30-20:30: SMS while asleep on battery came at once on the fixed 0058 (author); 39.2 mA over 30
+  min, 14 suspends. The crash after a modem recovery needs an ath10k that only ran its boot-time
+  power sequence; one Wi-Fi off/on after boot prevents it (`notes/modem-recovery-crash.md`,
+  `qx1050-wifi-cycle.service`).

@@ -1,0 +1,12 @@
+[Unit]
+Description=Power-cycle Wi-Fi once so a modem restart does not crash the phone
+After=connman.service
+Wants=connman.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/droid/qx1050-wifi-cycle.sh
+TimeoutStartSec=240
+
+[Install]
+WantedBy=multi-user.target
