@@ -1,0 +1,5 @@
+# The DWC3 core forbids runtime PM at probe until userspace allows it (Android's init does, SFOS
+# nothing). Allowed, the controller runtime-suspends when unplugged and its PHY supplies (L4, L12,
+# L15) switch off: system sleep 29-32 mA instead of 40-42 (notes/sleep.md, 2026-11-02). At bind,
+# because probe resets power/control to "on".
+ACTION=="bind", SUBSYSTEM=="platform", DRIVER=="dwc3", ATTR{power/control}="auto"

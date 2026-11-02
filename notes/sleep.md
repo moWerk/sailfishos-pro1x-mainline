@@ -414,3 +414,24 @@ audio's q6core/adsp-loader handshakes.
   IPA interrupt (SPI 289, not MPM-mapped) did wake the system from s2idle with the system
   domain, so unmapped modem-side interrupts may wake after all; needs a timed SMS test.
 - Display on/off with 0057 not yet checked.
+
+## The floor with vmin: USB runtime PM, iphb wakes, the modem (2026-11-02, night)
+
+Kernel zz-yw2 (0050, 0054-0057), screen off, unplugged, QG windows.
+- 2 h night window: 39.8 mA, vmin 86 % of the time, 40 suspends, no crash. Wakes: RTC 35, WLAN 11
+  (every 10 min, the AP's group rekey), IPA 7, VBUS 2. The RTC alarms are all dsme iphb: in a
+  40 min window with dsme at debug level (`dsmetool -l 7`) connmand 4 (~6 min keepalive) and
+  msyncd 3. Worth about 1 mA; the floor is the rest (an 18 min sleep alone read 33.6 mA).
+- No saving: goodix wakeup off (44.0 mA; 0035's scanning in suspend costs nothing measurable),
+  BT rfkill-blocked (~41 mA in the clean sleeps; the WCN rails stay on for Wi-Fi).
+- The DWC3 core forbids runtime PM at probe (`power/control` = on); Android's init allows it,
+  SFOS did nothing. Unplugged, the controller stayed active with its PHY supplies L4, L12 and
+  L15 on. With `auto` it runtime-suspends and the three supplies go off: clean sleeps 29-32 mA
+  instead of 40-42 (two windows), a 30 min window 34.0 mA mean with vmin 95 %. USB gadget mode
+  comes back on replug. droid-config: `70-qx1050-usb-runtime-pm.rules` (at bind, since probe
+  resets the attribute).
+- Remaining spikes: some sleeps read 110-170 mA for minutes. A per-wake log (/root/snaploop.sh:
+  vmin, per-master XO and shutdown counts) shows MPSS neither sleeping nor counting a shutdown
+  through them, and each ends with the RTC alarm: the modem stays up, probably on traffic it
+  cannot wake the APSS for (the same gap as the late SMS). Modem glink is IRQ 209 (SPI 68),
+  smp2p-mpss IRQ 18 (SPI 70), both without wake arming; glink-smem requests IRQF_NO_SUSPEND.
