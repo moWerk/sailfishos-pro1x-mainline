@@ -1,6 +1,6 @@
-From aedc62b8c1c1540ed668a86c372a54e5cd55eff6 Mon Sep 17 00:00:00 2001
+From aef9f813e36d61e36437f30de6445d57e0ecf880 Mon Sep 17 00:00:00 2001
 From: moWerk <mo@mowerk.net>
-Date: Mon, 2 Nov 2026 06:26:28 +0100
+Date: Mon, 2 Nov 2026 18:08:02 +0100
 Subject: [PATCH 58/60] rpmsg: glink: smem: Let an edge wake the system from
  suspend-to-idle
 MIME-Version: 1.0
@@ -13,26 +13,32 @@ remote is processed and the system sleeps on until some other wakeup. On
 the modem edge that delays incoming SMS and calls, and the modem stays
 up waiting for the host meanwhile.
 
-Make each edge device wakeup capable, enabled where the edge node has
-the wakeup-source property, and report a hard wakeup event from the
-interrupt when wakeup is enabled. power/wakeup of the edge device still
-overrides the default. Downstream reaches the same through a wakeup
-source in qrtr for packets from the modem.
+Register a wakeup source for each edge whose node has the wakeup-source
+property, and report a hard wakeup event from the interrupt. Downstream
+reaches the same through a wakeup source in qrtr for packets from the
+modem.
+
+The wakeup source is a standalone one, not the edge device's own:
+qcom_glink_native_remove() unregisters every child of the edge device,
+and a wakeup class device would be one of them, freed there and then
+unregistered again when the edge goes away (an oops in device_del() on
+every remoteproc recovery).
 
 On the Pro1-X (SM6115) with the system power domain, an SMS sent while
 suspended was only shown after the next unrelated wakeup (the edge
 interrupt arrived and the CPU went straight back into suspend-to-idle).
 With the modem edge marked, two SMS were shown 6 and about 20 seconds
-after sending, while suspended on battery.
+after sending, while suspended on battery. A remoteproc recovery
+(debugfs crash) completes with the modem back up.
 
 Disclosure: LLMGD-2 · origin O1 (the model wrote it after the downstream qrtr wakeup source; built and tested on the device by the model, SMS sent by the author)
 LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=kernel; graded-by=model; retrieval=web
 ---
- drivers/rpmsg/qcom_glink_smem.c | 17 ++++++++++++++++-
- 1 file changed, 16 insertions(+), 1 deletion(-)
+ drivers/rpmsg/qcom_glink_smem.c | 20 ++++++++++++++++++++
+ 1 file changed, 20 insertions(+)
 
 diff --git a/drivers/rpmsg/qcom_glink_smem.c b/drivers/rpmsg/qcom_glink_smem.c
-index 35bb03e67..352b374f3 100644
+index 35bb03e67..3753aebe9 100644
 --- a/drivers/rpmsg/qcom_glink_smem.c
 +++ b/drivers/rpmsg/qcom_glink_smem.c
 @@ -10,6 +10,7 @@
@@ -43,7 +49,16 @@ index 35bb03e67..352b374f3 100644
  #include <linux/mailbox_client.h>
  #include <linux/mfd/syscon.h>
  #include <linux/slab.h>
-@@ -212,6 +213,14 @@ static irqreturn_t qcom_glink_smem_intr(int irq, void *data)
+@@ -44,6 +45,8 @@ struct qcom_glink_smem {
+ 	struct mbox_client mbox_client;
+ 	struct mbox_chan *mbox_chan;
+ 
++	struct wakeup_source *ws;
++
+ 	u32 remote_pid;
+ };
+ 
+@@ -212,6 +215,14 @@ static irqreturn_t qcom_glink_smem_intr(int irq, void *data)
  {
  	struct qcom_glink_smem *smem = data;
  
@@ -52,33 +67,35 @@ index 35bb03e67..352b374f3 100644
 +	 * does not end a suspend-to-idle: a message from the remote (an incoming
 +	 * SMS or call on the modem edge) then waits for the next wakeup.
 +	 */
-+	if (device_may_wakeup(&smem->dev))
-+		pm_wakeup_dev_event(&smem->dev, 0, true);
++	if (smem->ws)
++		pm_wakeup_ws_event(smem->ws, 0, true);
 +
  	qcom_glink_native_rx(smem->glink);
  
  	return IRQ_HANDLED;
-@@ -247,13 +256,19 @@ struct qcom_glink_smem *qcom_glink_smem_register(struct device *parent,
- 	dev->of_node = node;
- 	dev->release = qcom_glink_smem_release;
- 	dev_set_name(dev, "%s:%pOFn", dev_name(parent->parent), node);
--	ret = device_register(dev);
-+	device_initialize(dev);
-+	device_set_wakeup_capable(dev, true);
-+	ret = device_add(dev);
- 	if (ret) {
- 		pr_err("failed to register glink edge\n");
- 		put_device(dev);
- 		return ERR_PTR(ret);
- 	}
+@@ -353,6 +364,13 @@ struct qcom_glink_smem *qcom_glink_smem_register(struct device *parent,
  
-+	/* Disabled unless the edge is marked; power/wakeup can still change it. */
+ 	smem->glink = glink;
+ 
++	/*
++	 * Not a wakeup source of the edge device itself: glink unregisters every
++	 * child of the edge when it is removed, a wakeup class device included.
++	 */
 +	if (of_property_read_bool(node, "wakeup-source"))
-+		device_wakeup_enable(dev);
++		smem->ws = wakeup_source_register(NULL, dev_name(dev));
 +
- 	ret = of_property_read_u32(dev->of_node, "qcom,remote-pid",
- 				   &remote_pid);
- 	if (ret) {
+ 	enable_irq(smem->irq);
+ 
+ 	return smem;
+@@ -373,6 +391,8 @@ void qcom_glink_smem_unregister(struct qcom_glink_smem *smem)
+ 
+ 	disable_irq(smem->irq);
+ 
++	wakeup_source_unregister(smem->ws);
++
+ 	qcom_glink_native_remove(glink);
+ 
+ 	mbox_free_channel(smem->mbox_chan);
 -- 
 2.56.0
 

@@ -480,3 +480,16 @@ Kernel zz-yw2 (0050, 0054-0057), screen off, unplugged, QG windows.
   boot-on clock until all consumers of a provider have bound): only gpucc is unsynced here
   (596a000.gmu has no driver of its own), both GPU GDSCs are off, mainline has no clk hold-state,
   no interconnect or rpmpd provider is unsynced, nothing deferred. Nothing to gain.
+- **Correction (18:10): the first 0058 broke modem recovery.** At 16:08 the WLAN firmware (on the
+  modem) asserted (`wlan_process ... wal_css_handle_sleep_failure`, right after a reassociation at
+  a WoW resume); the modem crash recovery then oopsed in `device_del` under
+  `qcom_glink_smem_unregister`: the edge's wakeup class device is a child of the edge, and
+  `qcom_glink_native_remove()` unregisters every child, so it was freed and then unregistered
+  again. Modem and Wi-Fi stayed down until a reboot (about 1 h 45 min; the drain windows only
+  read current and did not notice). Reproduced with the debugfs crash trigger
+  (`echo 2 > /sys/kernel/debug/remoteproc/remoteproc0/crash`). Fixed 0058: a standalone wakeup
+  source (`wakeup_source_register(NULL, ...)`), as downstream qrtr. With it the recovery
+  completes ("remote processor modem is now up"), but the phone then went into crash dump mode
+  (900e) with nothing more in the log (RAM dump `ramdump-zf`); whether that happens on modem
+  recovery without 0058 too (the October note "stopping remoteproc0 crashes the kernel"
+  suggests so) is open. Also open: whether the WLAN firmware assert recurs.

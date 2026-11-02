@@ -1,6 +1,6 @@
-From 7f6f986cde1355cc8f69ca49c0d1fef2a7a29ea4 Mon Sep 17 00:00:00 2001
+From 059f486f68f977604829f1fbd87c492c7e86b729 Mon Sep 17 00:00:00 2001
 From: moWerk <mo@mowerk.net>
-Date: Mon, 2 Nov 2026 15:55:20 +0100
+Date: Mon, 2 Nov 2026 18:08:02 +0100
 Subject: [PATCH 60/60] arm64: dts: qcom: sm6115-pro1x: Wake up on messages
  from the modem
 MIME-Version: 1.0
