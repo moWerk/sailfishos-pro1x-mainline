@@ -30,6 +30,7 @@ Wi-Fi power cycle after boot prevents it: `qx1050-wifi-cycle.service`.
 | Wi-Fi switched off and on in connman, no reload (first and second crash of the boot) | recovers, 3 of 3 |
 | second and third crash of a boot whose first crash ran without Wi-Fi | recovers, 2 of 2 |
 | `qx1050-wifi-cycle.service` at boot, then two crashes | recovers, 2 of 2 |
+| the same boot after 30 min on battery (6 suspends, 20 min asleep, 32.1 mA), third crash | recovers |
 
 - ath10k is passive in the fatal second. ath10k_core/ath10k_snoc built with a print before
   every step of the QMI events, power up/down, hif start/stop, recovery and
@@ -57,7 +58,7 @@ is then safe is not tested.
 ## Open
 
 - Does the protection last through hours of suspend and WoW? (The 16:08 crash came hours
-  after boot.) First check: 30 min asleep, then a crash.
+  after boot.) 30 min asleep, then a crash: recovered. Hours not yet tested.
 - Root cause. Candidates: the state the WLAN firmware keeps after its first mission-mode
   session at boot (calibration, BDF download, `cal_report`) that a later disable/enable
   clears; or WCN3950 state that only a disable after association resets. Next tools: the
