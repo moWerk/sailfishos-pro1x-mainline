@@ -64,3 +64,12 @@ is then safe is not tested.
   clears; or WCN3950 state that only a disable after association resets. Next tools: the
   modem's own crash reason via the SSR reason in SMEM, if the reset leaves any; downstream's
   icnss behaviour on SSR (it votes and power-cycles the WCN itself).
+- Lead for the root cause (2026-11-02 21:15, untested): the WCN digital rail L8
+  (vdd-0.8-cx-mx). Downstream icnss votes it at 640 mV (`qcom,vdd-cx-mx-config = <640000
+  640000>`), and mainline's qrb4210-rb2.dts pins L8 at 640 mV. The Pro1-X DT allows 400-728 mV
+  and ath10k sets no voltage, so the APSS vote is 400 mV (regulator_summary). If the modem's
+  own vote for the rail drops while it restarts, the WCN may brown out. Test: L8 fixed at
+  640000 in the board DT, `CYCLE_DISABLE=1`, then modem crashes on fresh boots. Also
+  different: downstream reassigns MSA permissions around a fatal crash (msa-fixed-region),
+  mainline uses `qcom,msa-fixed-perm`.
+- The 2 h battery test was stopped at 21:15 (the author needs the SIM for travel).
