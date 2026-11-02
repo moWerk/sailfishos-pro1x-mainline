@@ -73,3 +73,11 @@ is then safe is not tested.
   different: downstream reassigns MSA permissions around a fatal crash (msa-fixed-region),
   mainline uses `qcom,msa-fixed-perm`.
 - The 2 h battery test was stopped at 21:15 (the author needs the SIM for travel).
+- **The SIM is part of the condition** (21:00-21:22, SIM removed, Wi-Fi cycle disabled, first
+  modem crash after a fresh boot each time): L8 fixed at 640 mV recovered 4 of 4, but the
+  daily DT with L8 at 400 mV also recovered 3 of 3. All the 900e runs above had the SIM in.
+  So the crash needs a SIM (a registered modem: LTE/IMS activity, WLAN-LTE coexistence?)
+  together with the boot-time ath10k state, and the L8 runs say nothing yet.
+- To do with the SIM back: L8 at 640 mV (`k-l8` image, the dtb change only) with
+  `CYCLE_DISABLE=1`, first modem crash on 3 fresh boots; one control on the daily DT first
+  to confirm the crash still reproduces.
