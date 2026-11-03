@@ -89,6 +89,26 @@ is then safe is not tested.
   the sleeping station out about every 14 min. ath10k disables the firmware's STA keepalive
   on purpose (`ath10k_mac_vif_disable_keepalive()`, mac.c), so in WoW nothing keeps the
   station alive at the AP. With the SIM in, any of these crashes may be the fatal kind.
+- **Test modules (2026-11-03, ath10k_core only, out of tree, 3 h battery windows, no SIM).**
+  A deauth "races" when the system enters suspend again before the next `associated`.
+  | Module | mA | Deauths | Raced | Asserts |
+  |---|---|---|---|---|
+  | stock (night, 7 h) | 33.2 / 34.8 | 34 | 34 | 5 |
+  | firmware NULL-frame keepalive 60 s in WoW | 36.2 | 15 | not counted | 1 |
+  | + EAPOL/GTK/4-way WoW wake events, 2 s wakeup hold after a firmware wake | 36.4 | 5 | 2 | 0 |
+  | + beacon miss passed to mac80211 at WoW resume, 3 s hold for it | 34.6 | 11 | 3 | 0 |
+
+  - **The keepalive did not stop the AP drops.** The EAPOL wake events fired once in 6 h,
+    and no group rekey was logged, so missed rekeys are not shown to be the cause.
+  - **What the logs show:**
+    - The wake reasons varied with the AP: one run had 38 `AP_ASSOC_LOST` wakes, looping
+      every 2-4 s at about 120 mA, because ath10k does not report a WoW beacon miss to
+      mac80211. The next run had none.
+    - Holding the system awake for a moment after a firmware wake lets the reconnect finish
+      first, in 0.24 s.
+    - Every remaining race entered suspend exactly when the 2 s hold ran out: wpa_supplicant
+      retries an AP only after a 5-10 s ignore-list delay. The next build holds 12 s after a
+      deauth or disassoc wake.
 - To do with the SIM back: L8 at 640 mV (`k-l8` image, the dtb change only) with
   `CYCLE_DISABLE=1`, first modem crash on 3 fresh boots; one control on the daily DT first
   to confirm the crash still reproduces.
