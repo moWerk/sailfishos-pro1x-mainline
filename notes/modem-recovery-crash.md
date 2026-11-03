@@ -78,6 +78,17 @@ is then safe is not tested.
   daily DT with L8 at 400 mV also recovered 3 of 3. All the 900e runs above had the SIM in.
   So the crash needs a SIM (a registered modem: LTE/IMS activity, WLAN-LTE coexistence?)
   together with the boot-time ath10k state, and the L8 runs say nothing yet.
+- **The WLAN firmware assert recurs, and its trigger is a reconnect racing suspend**
+  (2026-11-02/03 night, no SIM, daily zs with the Wi-Fi cycle, 7 h on battery): 5 asserts
+  `wal_css_sm.c:wal_css_handle_sleep_failure:1639`, each a modem crash, all recovered. Every
+  one has the same sequence: in WoW the AP deauthenticates the phone with Reason 7
+  (CLASS3_FRAME_FROM_NONASSOC_STA: the AP had already dropped the station), the phone
+  resumes and suspends again at once, mac80211 authenticates during the freeze
+  (`authenticated`, no `associate with`), ath10k enables WoW, and the firmware asserts in
+  its sleep state machine. 30 Reason 7 deauths and 36 reassociations in 7 h: the AP times
+  the sleeping station out about every 14 min. ath10k disables the firmware's STA keepalive
+  on purpose (`ath10k_mac_vif_disable_keepalive()`, mac.c), so in WoW nothing keeps the
+  station alive at the AP. With the SIM in, any of these crashes may be the fatal kind.
 - To do with the SIM back: L8 at 640 mV (`k-l8` image, the dtb change only) with
   `CYCLE_DISABLE=1`, first modem crash on 3 fresh boots; one control on the daily DT first
   to confirm the crash still reproduces.
