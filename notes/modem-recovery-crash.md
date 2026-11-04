@@ -97,6 +97,7 @@ is then safe is not tested.
   | firmware NULL-frame keepalive 60 s in WoW | 36.2 | 15 | not counted | 1 |
   | + EAPOL/GTK/4-way WoW wake events, 2 s wakeup hold after a firmware wake | 36.4 | 5 | 2 | 0 |
   | + beacon miss passed to mac80211 at WoW resume, 3 s hold for it | 34.6 | 11 | 3 | 0 |
+  | + 12 s hold after a deauth/disassoc wake (13 h, one boot) | 32.3 / 35.9 | 76 | 0 | 0 |
 
   - **The keepalive did not stop the AP drops.** The EAPOL wake events fired once in 6 h,
     and no group rekey was logged, so missed rekeys are not shown to be the cause.
@@ -109,6 +110,12 @@ is then safe is not tested.
     - Every remaining race entered suspend exactly when the 2 s hold ran out: wpa_supplicant
       retries an AP only after a 5-10 s ignore-list delay. The next build holds 12 s after a
       deauth or disassoc wake.
+    - With the 12 s hold (2026-11-03 16:20 to 11-04 05:22, first 3 h then 10 h overnight):
+      no deauth raced suspend and the firmware did not assert once, against 5 asserts in
+      7 h on the stock module the night before. Reconnects took 0.25 s (median), the
+      slowest 10.24 s. The AP's drops did not stop (76 Reason 7 in 13 h), so the hold
+      fixes the crash path, not the drops. The hold still runs its full 12 s after a 0.25 s
+      reconnect; the next build releases it once the station is associated.
 - To do with the SIM back: L8 at 640 mV (`k-l8` image, the dtb change only) with
   `CYCLE_DISABLE=1`, first modem crash on 3 fresh boots; one control on the daily DT first
   to confirm the crash still reproduces.
