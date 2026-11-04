@@ -1,0 +1,161 @@
+From 88ed245ac9b27310c166e32f5afdea7137406154 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Wed, 4 Nov 2026 12:17:56 +0100
+Subject: [PATCH 1/2] wifi: ath10k: Stay awake for the reconnect after a WoW
+ deauth
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When the AP deauthenticates or disassociates the station while the
+system is suspended with WoW, the firmware wakes the host, but nothing
+holds the system awake. It suspends again within milliseconds, the
+reconnect runs during the freeze and WoW is enabled with the connection
+half done. On WCN3950 (SM6115) the WLAN firmware then asserts in
+wal_css_handle_sleep_failure, which takes the modem down with it.
+
+Report a wakeup event with a timeout from the WoW wakeup event: 12 s
+after a deauth or disassoc, because wpa_supplicant retries the AP only
+after its 5-10 s ignore-list delay, and 2 s after any other firmware
+wakeup reason. Release it when the station is authorized again, so a
+fast reconnect does not keep the system up for the rest of the timeout.
+
+On the Pro1-X (SM6115, WCN3950, firmware WLAN.HL.3.2.4-00982) with one AP that
+drops the sleeping station about every 10-15 minutes (deauth reason 7),
+on battery, without a SIM:
+- unchanged: all 34 deauths in 7 h were followed by a suspend before the
+  next association, 5 firmware asserts;
+- 2 s hold for every reason: 5 of 16 deauths in 6 h raced, each one
+  exactly at the end of the hold, no assert;
+- 12 s after deauth/disassoc: 0 of 76 deauths in 13 h raced, no assert,
+  reconnect after 0.25 s (median), 10.24 s at most, but 12 s awake each;
+- with the release: 0 of 18 deauths in 3 h raced, back in suspend
+  0.25-0.32 s after the deauth (one at 5.66 s).
+Sleep current did not change across fresh boots (35.6 / 35.3 / 35.4 mA,
+with and without the release).
+
+Disclosure: LLMGD-2 · origin O1 (the model wrote it from the ath10k WoW and mac80211 suspend paths; built and tested on the device by the model)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=kernel; graded-by=model; retrieval=none
+---
+ drivers/net/wireless/ath/ath10k/mac.c |  7 +++++++
+ drivers/net/wireless/ath/ath10k/wmi.c |  2 ++
+ drivers/net/wireless/ath/ath10k/wow.c | 21 +++++++++++++++++++++
+ drivers/net/wireless/ath/ath10k/wow.h | 13 +++++++++++++
+ 4 files changed, 43 insertions(+)
+
+diff --git a/drivers/net/wireless/ath/ath10k/mac.c b/drivers/net/wireless/ath/ath10k/mac.c
+index 8e604697d..f6c7e34b7 100644
+--- a/drivers/net/wireless/ath/ath10k/mac.c
++++ b/drivers/net/wireless/ath/ath10k/mac.c
+@@ -14,6 +14,7 @@
+ #include <linux/etherdevice.h>
+ #include <linux/acpi.h>
+ #include <linux/of.h>
++#include <linux/pm_wakeup.h>
+ #include <linux/bitfield.h>
+ #include <linux/random.h>
+ 
+@@ -7744,6 +7745,12 @@ static int ath10k_sta_state(struct ieee80211_hw *hw,
+ 			ath10k_warn(ar, "failed to disassociate station: %pM vdev %i: %i\n",
+ 				    sta->addr, arvif->vdev_id, ret);
+ 	}
++
++	/* The reconnect after a WoW wakeup is done, see ath10k_wow_wakeup_event() */
++	if (vif->type == NL80211_IFTYPE_STATION && !sta->tdls &&
++	    old_state == IEEE80211_STA_ASSOC &&
++	    new_state == IEEE80211_STA_AUTHORIZED)
++		pm_relax(ar->dev);
+ exit:
+ 	mutex_unlock(&ar->conf_mutex);
+ 	return ret;
+diff --git a/drivers/net/wireless/ath/ath10k/wmi.c b/drivers/net/wireless/ath/ath10k/wmi.c
+index adc9c62b0..131cb7a73 100644
+--- a/drivers/net/wireless/ath/ath10k/wmi.c
++++ b/drivers/net/wireless/ath/ath10k/wmi.c
+@@ -4687,6 +4687,8 @@ void ath10k_wmi_event_wow_wakeup_host(struct ath10k *ar, struct sk_buff *skb)
+ 
+ 	ath10k_dbg(ar, ATH10K_DBG_WMI, "wow wakeup host reason %s\n",
+ 		   wow_reason(ev.wake_reason));
++
++	ath10k_wow_wakeup_event(ar, ev.wake_reason);
+ }
+ 
+ void ath10k_wmi_event_dcs_interference(struct ath10k *ar, struct sk_buff *skb)
+diff --git a/drivers/net/wireless/ath/ath10k/wow.c b/drivers/net/wireless/ath/ath10k/wow.c
+index 92af8bc63..492659925 100644
+--- a/drivers/net/wireless/ath/ath10k/wow.c
++++ b/drivers/net/wireless/ath/ath10k/wow.c
+@@ -7,6 +7,7 @@
+ 
+ #include "mac.h"
+ 
++#include <linux/pm_wakeup.h>
+ #include <net/mac80211.h>
+ #include "hif.h"
+ #include "core.h"
+@@ -562,6 +563,26 @@ void ath10k_wow_op_set_wakeup(struct ieee80211_hw *hw, bool enabled)
+ 	mutex_unlock(&ar->conf_mutex);
+ }
+ 
++void ath10k_wow_wakeup_event(struct ath10k *ar, enum wmi_wow_wake_reason reason)
++{
++	switch (reason) {
++	case WOW_REASON_UNSPECIFIED:
++		/* the host woke up on its own */
++		break;
++	case WOW_REASON_DEAUTH_RECVD:
++	case WOW_REASON_DISASSOC_RECVD:
++		/* Without a hold the system suspends again while the station
++		 * reconnects, and WoW is enabled with the connection half
++		 * done. Released when the station is authorized again.
++		 */
++		pm_wakeup_dev_event(ar->dev, ATH10K_WOW_RECONNECT_HOLD_MS, false);
++		break;
++	default:
++		pm_wakeup_dev_event(ar->dev, ATH10K_WOW_WAKE_HOLD_MS, false);
++		break;
++	}
++}
++
+ int ath10k_wow_op_resume(struct ieee80211_hw *hw)
+ {
+ 	struct ath10k *ar = hw->priv;
+diff --git a/drivers/net/wireless/ath/ath10k/wow.h b/drivers/net/wireless/ath/ath10k/wow.h
+index 14ea4e1e9..a58e4d5c7 100644
+--- a/drivers/net/wireless/ath/ath10k/wow.h
++++ b/drivers/net/wireless/ath/ath10k/wow.h
+@@ -11,12 +11,20 @@ struct ath10k_wow {
+ 	struct wiphy_wowlan_support wowlan_support;
+ };
+ 
++/* How long to keep the system awake after the firmware woke it up. After a
++ * deauth or disassoc, wpa_supplicant ignores the AP for 5-10 s before it
++ * tries again.
++ */
++#define ATH10K_WOW_RECONNECT_HOLD_MS	12000
++#define ATH10K_WOW_WAKE_HOLD_MS		2000
++
+ #ifdef CONFIG_PM
+ 
+ int ath10k_wow_init(struct ath10k *ar);
+ int ath10k_wow_op_suspend(struct ieee80211_hw *hw,
+ 			  struct cfg80211_wowlan *wowlan);
+ int ath10k_wow_op_resume(struct ieee80211_hw *hw);
++void ath10k_wow_wakeup_event(struct ath10k *ar, enum wmi_wow_wake_reason reason);
+ void ath10k_wow_op_set_wakeup(struct ieee80211_hw *hw, bool enabled);
+ 
+ #else
+@@ -26,5 +34,10 @@ static inline int ath10k_wow_init(struct ath10k *ar)
+ 	return 0;
+ }
+ 
++static inline void ath10k_wow_wakeup_event(struct ath10k *ar,
++					   enum wmi_wow_wake_reason reason)
++{
++}
++
+ #endif /* CONFIG_PM */
+ #endif /* _WOW_H_ */
+-- 
+2.56.0
+
