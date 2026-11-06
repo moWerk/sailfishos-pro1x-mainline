@@ -153,6 +153,51 @@ NMEA, engine state, fix session state; START periodic 1 s with intermediate repo
    indications directly (no NMEA parsing), and owns the assistance. Recommended once
    route 1 has proven fixes outside.
 
+## AGPS plan after the 2026-11-06 research (nothing tested yet)
+
+Research only (libqmi `qmi-service-loc.json`, ModemManager `mm-shared-qmi.c`, Qualcomm's
+`location-apis-qcom` `location_service_v02.h` / `LocApiV02.cpp`, Quectel's RG50xQ GNSS
+application note). Findings:
+- Our INJECT XTRA DATA (0xA7) is built like ModemManager's (0x01 total size u32, 0x02 total
+  parts u16, 0x03 part number u16 from 1, 0x04 data, at most 1024 bytes per part; 0x35 first,
+  0xA7 on error 94). So the final status 1 is the modem refusing content, time or
+  configuration, not a framing error.
+- Corrections to the notes above: 0xA8 is INJECT XTRA PCID; the XTRA status query is
+  QUERY XTRA INFO 0xB0. The 0x2D indications seen on 10-30 are WIFI_REQ (the modem asks for
+  a Wi-Fi position).
+
+Order to try, each from a forced cold start (0xA6 delete) so the gain is measurable:
+1. **QUERY XTRA INFO (0xB0)**, TLV 0x01 xtraConfig u32 = 0. Its indication's report mask says
+   whether XTRA is disabled in the modem (0x80), whether the modem wants time (0x10 with
+   timeRequest), and lists XTRA and NTP servers; also file version, generation time and
+   remaining validity. Separates the three hypotheses below in one call. Also register event
+   bit 45 and watch indication 0xD6 (Qualcomm's HAL registers it next to the predicted orbits
+   request).
+2. **INJECT UTC TIME (0x38) before XTRA:** 0x01 u64 ms since the Unix epoch (UTC), 0x02 u32
+   uncertainty ms (ModemManager 1000, Quectel 3500; ours was 500), 0x10 time source u32
+   (1 AP, 2 NTP; ours had none). Quectel's order: time, then XTRA, engine off.
+3. **XTRA (0xA7)** with optional 0x10 formatType u32 0 and 0x11 fileInfo (u32 type 1, u32
+   interval min); part size from GET PREDICTED ORBITS DATA SOURCE (0x36), never above 1024;
+   decode the last indication fully (0x10 part number, 0x11 accepted constellation mask, sent
+   only on the last part and only if something was accepted). File from the URL that 0x36
+   names; known variants xtra3grc.bin / xtra3grcej.bin (xtrapath1-6.izatcloud.net),
+   xtra3Mgrbeji.bin (path1.xtracloud.net, NTP time.xtracloud.net). XTRA 3 files are signed.
+4. **GET PREDICTED ORBITS DATA VALIDITY (0x37)** to confirm; recheck whether its start time is
+   UTC or GPS time.
+5. **INJECT POSITION (0x39)** on the modem's 0x2A/0x2D requests or at START, seeded from mlsdb
+   or the last fix: 0x10/0x11 lat/lon double, 0x12 horizontal uncertainty float (at least
+   1000 m, as ModemManager advises), 0x13 confidence u8 68, 0x1B timestamp ms UTC, 0x1D source
+   u32 6 (other; our script did not send 0x1D).
+6. SUPL without a SIM over Wi-Fi: the IDL has a WLAN bearer for location server connections,
+   but nothing implements it. Last.
+
+Why the 10-30 XTRA failed, ranked guesses: (1) no valid GPS time without a SIM, so an XTRA 3
+file's signature or window cannot be checked: test by injecting right after a fix, when the
+engine has exact GPS time; (2) XTRA disabled in the modem configuration (0xB0 bit 0x80; no
+QMI message enables it, so that would be NV/EFS); (3) wrong file variant for this firmware.
+Baseline still missing: whether the stock hybris HAL can inject XTRA on this firmware at all
+(its download failed on DNS); a hosts-file fix on the hybris Pro1-X answers that.
+
 ## AGPS options (all through QMI LOC; names as in libqmi's `qmi-service-loc.json`,
 message IDs to be checked there before use)
 
