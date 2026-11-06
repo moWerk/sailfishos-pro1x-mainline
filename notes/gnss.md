@@ -1,7 +1,8 @@
 # GNSS and AGPS
 
-Status 2026-11-06 19:10: **mainline gets a fix** (patio, open sky, no SIM, no assistance
-injected, see below); nothing feeds SailfishOS location yet, so Pure Maps shows no position. AGPS is a first-class goal of this port (time to first fix was the oldest
+Status 2026-11-06 19:20: **mainline gets a fix and geoclue serves it** (patio, open sky, no
+SIM, no assistance injected): route 1 below works as a prototype started by hand; not yet
+packaged or started at boot. AGPS is a first-class goal of this port (time to first fix was the oldest
 complaint about SailfishOS devices), so it is designed in from the start, not added later.
 
 ## What is proven (on the device, headless, indoors)
@@ -105,6 +106,27 @@ NMEA, engine state, fix session state; START periodic 1 s with intermediate repo
   above, they reset with the modem). Position reports carry the fix without NMEA.
 - An earlier qmicli `--loc-start` the same evening left no session behind (it ends with the
   process), as documented above.
+
+## Route 1 works: LOC -> pty -> gpsd -> geoclue (2026-11-06, prototype)
+
+- `scripts/qmi-loc-gpsd-bridge.py OUTDIR MINUTES /run/qx1050-gnss` (root): sets the NMEA types
+  with qmicli (global, reset by a modem restart), runs one LOC session (REG_EVENTS, START
+  periodic 1 s) and writes each NMEA sentence with CRLF to a pty whose slave it links at
+  `/run/qx1050-gnss` (raw mode, master non-blocking so a missing reader never stalls the
+  session).
+- `gpsd -N -n -F /run/gpsd.sock /run/qx1050-gnss` (jolla repo gpsd 3.26.1): TPV mode 3 at 1 Hz.
+- `geoclue-provider-gpsd3` 0.2 from nemo:devel:hw:native-common (needs `libgps` from the jolla
+  repo, libgps.so.31, same gpsd 3.26) installed with `--no-gpg-checks`; geoclue-master must be
+  restarted (it reads the provider list once). Then, as defaultuser on the session bus,
+  Master.Create, SetRequirements(6, 0, true, 1023), PositionStart: the master picks "GPSd3
+  Provider" and GetPosition returns latitude, longitude and altitude with accuracy level 6
+  (detailed), horizontal 24 m. Apps that held a client of the old master need a restart.
+- **gpsd's `udp://` source does not work for this:** gpsd reads the UDP socket blocking, so
+  between packets it sits in `read()` and never answers a client on port 2947 (connect works,
+  no VERSION banner; strace shows only reads and the D-Bus fix signals). The pty works.
+- Still to do: a systemd unit (gpsd and the bridge, the session running only on demand, or
+  the native provider below), the status bar GPS indicator check, packaging in
+  droid-config-qx1050, power cost of a running session, a measured cold start.
 
 ## What SailfishOS offers
 
