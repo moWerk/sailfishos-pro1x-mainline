@@ -1,7 +1,7 @@
 # GNSS and AGPS
 
-Status 2026-10-30 11:00: **the receiver hears satellites since the modem gets its MCFG files
-(below); no fix yet, nothing feeds SailfishOS location yet.** AGPS is a first-class goal of this port (time to first fix was the oldest
+Status 2026-11-06 19:10: **mainline gets a fix** (patio, open sky, no SIM, no assistance
+injected, see below); nothing feeds SailfishOS location yet, so Pure Maps shows no position. AGPS is a first-class goal of this port (time to first fix was the oldest
 complaint about SailfishOS devices), so it is designed in from the start, not added later.
 
 ## What is proven (on the device, headless, indoors)
@@ -88,6 +88,23 @@ Assistance on this modem (MPSS.HA.1.1-00140):
 - `scripts/qmi-loc-assist.py` is the session tool (assistance on the modem's requests,
   satellites per system with SNR); `scripts/qmi-loc-coldstart.py` finds the LOC service without
   qrtr-lookup and tries the deletes.
+
+## First fix on mainline (2026-11-06)
+
+pro1x#2 on the patio, open sky, Wi-Fi only (no SIM), kernel 7.3 with 0061/0062, MCFG served and
+rmtfs keeping the EFS since 2026-10-30. A one-process LOC client (REG_EVENTS position, SV info,
+NMEA, engine state, fix session state; START periodic 1 s with intermediate reports):
+
+- START at 18:59:33; position reports "in progress" with no satellite list at first; the first
+  report with session status 0 (success) by 19:01:02, horizontal uncertainty 52 m, then 3-5 m
+  within 30 s; SV info lists 39 satellites (all systems, used and tracked).
+- Not a true cold start: the EFS kept since 2026-10-30 likely still held almanac and the last
+  position (the last sessions on this phone were the 10-30 patio tests). A cold start with
+  the assistance data deleted is still to be timed.
+- No NMEA indications came in this session: the NMEA types were not set after the boot (see
+  above, they reset with the modem). Position reports carry the fix without NMEA.
+- An earlier qmicli `--loc-start` the same evening left no session behind (it ends with the
+  process), as documented above.
 
 ## What SailfishOS offers
 
