@@ -187,7 +187,7 @@ NMEA, engine state, fix session state; START periodic 1 s with intermediate repo
    indications directly (no NMEA parsing), and owns the assistance. Recommended once
    route 1 has proven fixes outside.
 
-## AGPS plan after the 2026-11-06 research (nothing tested yet)
+## AGPS plan after the 2026-11-06 research (steps 1-4 tested 2026-11-07, see below)
 
 Research only (libqmi `qmi-service-loc.json`, ModemManager `mm-shared-qmi.c`, Qualcomm's
 `location-apis-qcom` `location_service_v02.h` / `LocApiV02.cpp`, Quectel's RG50xQ GNSS
@@ -231,6 +231,48 @@ engine has exact GPS time; (2) XTRA disabled in the modem configuration (0xB0 bi
 QMI message enables it, so that would be NV/EFS); (3) wrong file variant for this firmware.
 Baseline still missing: whether the stock hybris HAL can inject XTRA on this firmware at all
 (its download failed on DNS); a hosts-file fix on the hybris Pro1-X answers that.
+
+## Stock 2.1.7 image and the first AGPS steps (2026-11-07, indoors, no fix)
+
+Source: F(x)tec's last stock release, `Release_SM6115_S701_gms_V2.1.7_20230417-1049_userdebug`,
+extracted read-only on the e15 into `~/sailfish-build/stock-2.1.7/` (target_files zip,
+NON-HLOS, boot, dtbo, vmlinux; persist.img left in the archive). The Qualcomm files stay there,
+none are committed here.
+- The stock modem is `MPSS.HA.1.1-00140-KD_ALL_PACK-1`, the same build as
+  `/lib/firmware/qcom/sm6115/Fxtec/QX1050/modem.mbn` on the device. Results with that
+  firmware carry over to stock.
+- Stock `gps.conf` names no XTRA or SUPL server: only `NTP_SERVER=time.xtracloud.net`,
+  `SUPL_VER=0x10000`, `CAPABILITIES=0x17`, `INTERMEDIATE_POS=0`. The `xtra-daemon` has no
+  built-in URLs either. The modem supplies them (below). `izat.conf` sets `GTP_MODE=DISABLED`
+  and `SAP=MODEM_DEFAULT`; nothing in it is needed without the Qualcomm daemons.
+
+Measured on pro1x#2 (`scripts/qmi-loc-xtra-query.py`, `scripts/qmi-loc-xtra-inject.py`
+with `SESSION=1` / `VERBOSE=1`; plain QRTR, no fix since the day before):
+1. **GET PREDICTED ORBITS DATA SOURCE (0x36)** works. It lists
+   `https://path{1,2,3}.xtracloud.net/xtra3grcej.bin` and no allowed-size TLV.
+2. **QUERY XTRA INFO (0xB0)** works. Report mask 0x2c: XTRA server list, NTP server list
+   (`time.xtracloud.net` three times) and preferred valid age 168 h. Bit 0x80 (XTRA disabled)
+   is clear and bit 0x01 (data age) is clear, so XTRA is enabled and no data is loaded. This
+   rules out guess (2) above.
+3. **INJECT UTC TIME (0x38)** is accepted at the response level, but its indication says
+   general failure every time: uncertainty 1000, 500, 100, 30 and 0 ms; source TLV 0x10 = 1
+   and 2; with and without a running session. Leaving out 0x02 gives response error 0x11.
+4. **INJECT PREDICTED ORBITS DATA (0x35)** is refused with error 94 (not supported), so
+   **0xA7** is the message on this firmware.
+5. **INJECT XTRA DATA (0xA7)** in 1024-byte parts: every part up to the second to last gets
+   status 0 with its own part number in 0x10. The last part gets status 1 (general failure)
+   with 0x10 = 2 and no 0x11. The result is the same for `xtra3grcej.bin` (the modem's own
+   choice, 47 KB), `xtra2.bin` and `xtra3gr.bin`, with and without a session. The modem
+   assembles the file and rejects it as a whole; the final 0x10 looks like an error code, not
+   a part number.
+6. **GET PREDICTED ORBITS DATA VALIDITY (0x37)** stays at general failure: no data.
+
+So framing, file variant and the XTRA switch are fine. What remains is guess (1): the engine
+has no valid time. Time injection fails as well, and an XTRA 3 file cannot be checked without
+time. The next test is outdoors: get a fix, then inject time and XTRA while the engine has
+GPS time. If that works, injection right after a fix (or a stored XTRA kept fresh by later
+fixes) is the route without a SIM. If it fails again, compare with the hybris HAL on the same
+firmware.
 
 ## AGPS options (all through QMI LOC; names as in libqmi's `qmi-service-loc.json`,
 message IDs to be checked there before use)
