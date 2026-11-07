@@ -1,9 +1,9 @@
 # GNSS and AGPS
 
-Status 2026-11-06 19:20: **mainline gets a fix and geoclue serves it** (patio, open sky, no
-SIM, no assistance injected): route 1 below works as a prototype started by hand; not yet
-packaged or started at boot. AGPS is a first-class goal of this port (time to first fix was the oldest
-complaint about SailfishOS devices), so it is designed in from the start, not added later.
+Status 2026-11-07 01:15: **native QMI provider installed** (`packages/geoclue-provider-hybris-qmi`,
+Jolla's geoclue-hybris with a QMI LOC backend in place of the Android HAL); lifecycle tested
+indoors, a fix through it still to be seen outdoors. Route 1 (gpsd) is removed from the
+phone. The modem gets a fix under open sky (2026-11-06, 1 Hz all through a drive).
 
 ## What is proven (on the device, headless, indoors)
 
@@ -127,6 +127,40 @@ NMEA, engine state, fix session state; START periodic 1 s with intermediate repo
 - Still to do: a systemd unit (gpsd and the bridge, the session running only on demand, or
   the native provider below), the status bar GPS indicator check, packaging in
   droid-config-qx1050, power cost of a running session, a measured cold start.
+
+## Drive test and the native provider (2026-11-06/07)
+
+- Drive with route 1 (19:2x-21:52): the modem reported a fix every second all the way (8898 of
+  9601 reports success; 300 of 300 per 5 min at up to 140 km/h; one gap of about 10 min
+  leaving the house). Pure Maps moved only about once a minute. Replaying the recorded NMEA
+  through gpsd into a QML PositionSource gave 1 update per second, so gpsd and geoclue were
+  not dropping fixes; the speed reached Qt as invalid and the accuracy was the provider's
+  fixed 24 m. geoclue-provider-gpsd3 also stops for good when gpsd restarts (`gpsd_poll`
+  returns FALSE on a read error and never reconnects). Pure Maps' own handling remains the
+  suspect for the once-a-minute updates; it can only be rechecked on a drive now.
+- `packages/geoclue-provider-hybris-qmi`: mer-hybris/geoclue-providers-hybris at b126f585
+  plus `qmi/qmilocationbackend.{h,cpp}` behind the existing `HybrisLocationBackend`
+  interface, so Settings' hybris switch, the GPS status icon, NTP time and the position
+  injection from other providers work unchanged. The backend:
+  - one QRTR socket (no privileges needed, so no suid bit); NEW_LOOKUP for service 16 stays
+    registered, and DEL_SERVER/NEW_SERVER from the name service handle a modem restart
+    (registration and session are sent again); socket errors reopen the socket.
+  - REG_EVENTS position, SV info, inject time request, engine state, fix session state; START
+    session 1, periodic, intermediate reports off, interval from the provider (min 1 s); STOP
+    when the provider stops.
+  - position report 0x24 only with session status success: latitude/longitude, altitude above
+    the ellipsoid (0x1A), speed (0x18, m/s to knots as the provider expects), heading (0x20),
+    vertical speed, circular horizontal uncertainty (0x12; the earlier scripts printed 0x13,
+    the elliptical minor axis), vertical uncertainty (0x1C), UTC timestamp (0x25). Satellites
+    from 0x25 (28-byte entries; QMI's ids already use the per-system ranges geoclue-hybris
+    uses), used ones from 0x24 TLV 0x2C.
+  - time injection 0x38 (uncertainty at least 1000 ms) when the modem asks; position
+    injection 0x39 (at least 1000 m) from the provider's existing injection path. XTRA,
+    aiding data delete, SUPL: stubs for now.
+- Tested 2026-11-07 indoors (no fix there): geoclue-master spawns it, the LOC service is
+  found, a client starts the session (engine on), the client leaving stops it (engine off),
+  the provider exits after 30 s idle. Not yet tested: a fix through it, a modem restart while
+  a session runs, time/position injection replies, the status bar icon, Pure Maps on a drive.
 
 ## What SailfishOS offers
 
