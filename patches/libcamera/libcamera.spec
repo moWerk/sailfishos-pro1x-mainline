@@ -1,7 +1,7 @@
 Name:       libcamera
 Summary:    A library to support complex camera ISPs
 Version:    0.7.2
-Release:    9.qx1050
+Release:    10.qx1050
 License:    LGPLv2+
 URL:        https://libcamera.org
 Source:     %{name}-%{version}.tar.bz2
@@ -25,6 +25,9 @@ Patch14:    0014-gstreamer-Serialise-control-access-and-expose-AfStat.patch
 Patch15:    0015-ipa-Focus-is-lost-only-when-sharpness-drops-AfModeAu.patch
 Patch16:    0016-software_isp-debayer_egl-Centre-the-scaled-crop-stat.patch
 Patch17:    0017-simple-Keep-exposure-colour-and-focus-over-a-camera-.patch
+# Longer exposures (VBLANK) and faster AGC, from mlaparie/fxtec-pro1x-guix device/libcamera/af (next)
+Patch18:    0018-simple-raise-the-vertical-blanking-for-longer-exposu.patch
+Patch19:    0019-ipa-simple-agc-settle-the-exposure-faster.patch
 Source1:    imx582.yaml
 Source2:    s5k4h7.yaml
 

@@ -1,0 +1,155 @@
+From: Mathieu <mlaparie@users.noreply.github.com>
+Subject: [PATCH] simple: raise the vertical blanking for longer exposures
+
+The soft IPA took the exposure range from the sensor at configure time
+and never wrote V4L2_CID_VBLANK, so no exposure could be longer than one
+frame at the mode's default blanking: 10.4 ms on the Pro1x's IMX582 1080p
+mode (vertical blanking 70 of up to 64420 lines), asked or automatic, in
+the dark as well (measured with libcamerasrc, 2026-11-02).
+
+With a VBLANK control, the longest exposure becomes the one at the
+default blanking plus the blanking's headroom (each line of blanking
+adds a line of exposure), at most 1 s; the automatic exposure stops at
+66 ms so the viewfinder keeps 15 frames a second; each frame's blanking
+is raised just enough for its exposure.  The pipeline handler writes
+VBLANK before the exposure (a priority delayed control).
+
+Ours (fxtec-pro1x-guix), on top of moWerk's 0012 and 0017.
+
+(from mlaparie/fxtec-pro1x-guix device/libcamera/af, next branch)
+---
+diff --git a/src/ipa/simple/algorithms/agc.cpp b/src/ipa/simple/algorithms/agc.cpp
+index 3b83118..c00710a 100644
+--- a/src/ipa/simple/algorithms/agc.cpp
++++ b/src/ipa/simple/algorithms/agc.cpp
+@@ -155,7 +155,7 @@ void Agc::updateExposure(IPAContext &context, IPAFrameContext &frameContext,
+ 
+ 	if (factor > 1.0f) {
+ 		/* Scene too dark: increase exposure first, then gain. */
+-		if (exposure < context.configuration.agc.exposureMax) {
++		if (exposure < context.configuration.agc.exposureMaxAuto) {
+ 			int32_t next = static_cast<int32_t>(exposure * factor);
+ 			exposure = std::max(next, exposure + 1);
+ 		} else {
+@@ -180,7 +180,7 @@ void Agc::updateExposure(IPAContext &context, IPAFrameContext &frameContext,
+ 	}
+ 
+ 	exposure = std::clamp(exposure, context.configuration.agc.exposureMin,
+-			      context.configuration.agc.exposureMax);
++			      context.configuration.agc.exposureMaxAuto);
+ 	again = std::clamp(again, context.configuration.agc.againMin,
+ 			   context.configuration.agc.againMax);
+ 
+diff --git a/src/ipa/simple/ipa_context.h b/src/ipa/simple/ipa_context.h
+index f061a25..354fa59 100644
+--- a/src/ipa/simple/ipa_context.h
++++ b/src/ipa/simple/ipa_context.h
+@@ -27,10 +27,25 @@ namespace ipa::soft {
+ 
+ struct IPASessionConfiguration {
+ 	struct {
+-		int32_t exposureMin, exposureMax;
++		/*
++		 * exposureMax: the longest exposure, raising the vertical
++		 * blanking if the sensor has it (manual exposures);
++		 * exposureMaxAuto: the automatic exposure's limit, short enough
++		 * to keep the viewfinder moving.
++		 */
++		int32_t exposureMin, exposureMax, exposureMaxAuto;
+ 		double againMin, againMax, again10, againMinStep;
+ 		utils::Duration lineDuration;
+ 	} agc;
++	struct {
++		/*
++		 * The sensor's vertical blanking, raised with the exposure:
++		 * exposureAtDef is the longest exposure at the default blanking
++		 * vblankDef; each line of blanking adds one line of exposure.
++		 */
++		bool present;
++		int32_t vblankMin, vblankMax, vblankDef, exposureAtDef;
++	} vblank;
+ 	struct {
+ 		std::optional<uint8_t> level;
+ 	} black;
+diff --git a/src/ipa/simple/soft_simple.cpp b/src/ipa/simple/soft_simple.cpp
+index c958e92..9fedf3c 100644
+--- a/src/ipa/simple/soft_simple.cpp
++++ b/src/ipa/simple/soft_simple.cpp
+@@ -230,6 +230,41 @@ int IPASoftSimple::configure(const IPAConfigInfo &configInfo)
+ 		context_.sensorInfo.minLineLength * 1.0s / context_.sensorInfo.pixelRate;
+ 	context_.configuration.agc.exposureMin = exposureInfo.min().get<int32_t>();
+ 	context_.configuration.agc.exposureMax = exposureInfo.max().get<int32_t>();
++	context_.configuration.agc.exposureMaxAuto = context_.configuration.agc.exposureMax;
++
++	/*
++	 * Longer exposures than one frame of the mode's default blanking: the
++	 * frame grows with the exposure (V4L2_CID_VBLANK, written before the
++	 * exposure).  Without this the IMX582's 1080p mode never exposed
++	 * longer than 10.4 ms, in the dark as well.  Manual exposures may go
++	 * up to the blanking's limit (at most 1 s); the automatic exposure up
++	 * to 66 ms, 15 frames a second.
++	 */
++	const auto vblankIt = sensorInfoMap_.find(V4L2_CID_VBLANK);
++	if (vblankIt != sensorInfoMap_.end() &&
++	    context_.configuration.agc.lineDuration > utils::Duration(0)) {
++		auto &vb = context_.configuration.vblank;
++		vb.vblankMin = vblankIt->second.min().get<int32_t>();
++		vb.vblankMax = vblankIt->second.max().get<int32_t>();
++		vb.vblankDef = vblankIt->second.def().get<int32_t>();
++		vb.exposureAtDef = context_.configuration.agc.exposureMax;
++		if (vb.vblankMax > vb.vblankDef) {
++			const auto &lineDuration = context_.configuration.agc.lineDuration;
++			const int32_t linesPerSecond =
++				static_cast<int32_t>(1.0s / lineDuration);
++			const int32_t lines66ms =
++				static_cast<int32_t>(66ms / lineDuration);
++			vb.present = true;
++			context_.configuration.agc.exposureMax =
++				std::min(vb.exposureAtDef + (vb.vblankMax - vb.vblankDef),
++					 linesPerSecond);
++			context_.configuration.agc.exposureMaxAuto =
++				std::max(vb.exposureAtDef,
++					 std::min(lines66ms,
++						  context_.configuration.agc.exposureMax));
++		}
++	}
++
+ 	if (!context_.configuration.agc.exposureMin) {
+ 		LOG(IPASoft, Warning) << "Minimum exposure is zero, that can't be linear";
+ 		context_.configuration.agc.exposureMin = 1;
+@@ -298,6 +333,7 @@ int IPASoftSimple::configure(const IPAConfigInfo &configInfo)
+ 	LOG(IPASoft, Info)
+ 		<< "Exposure " << context_.configuration.agc.exposureMin << "-"
+ 		<< context_.configuration.agc.exposureMax
++		<< " (auto up to " << context_.configuration.agc.exposureMaxAuto << ")"
+ 		<< ", gain " << context_.configuration.agc.againMin << "-"
+ 		<< context_.configuration.agc.againMax
+ 		<< " (" << context_.configuration.agc.againMinStep << ")";
+@@ -362,6 +398,13 @@ void IPASoftSimple::processStats(const uint32_t frame,
+ 
+ 	auto &againNew = frameContext.sensor.gain;
+ 	ctrls.set(V4L2_CID_EXPOSURE, frameContext.sensor.exposure);
++	const auto &vb = context_.configuration.vblank;
++	if (vb.present) {
++		/* A frame just long enough for the exposure, never shorter than the default. */
++		int32_t vblank = vb.vblankDef +
++				 std::max(0, frameContext.sensor.exposure - vb.exposureAtDef);
++		ctrls.set(V4L2_CID_VBLANK, std::clamp(vblank, vb.vblankMin, vb.vblankMax));
++	}
+ 	ctrls.set(V4L2_CID_ANALOGUE_GAIN,
+ 		  static_cast<int32_t>(camHelper_ ? camHelper_->gainCode(againNew) : againNew));
+ 
+diff --git a/src/libcamera/pipeline/simple/simple.cpp b/src/libcamera/pipeline/simple/simple.cpp
+index 6a504f0..3483b59 100644
+--- a/src/libcamera/pipeline/simple/simple.cpp
++++ b/src/libcamera/pipeline/simple/simple.cpp
+@@ -574,6 +574,9 @@ SimpleCameraData::SimpleCameraData(SimplePipelineHandler *pipe,
+ 		{ V4L2_CID_ANALOGUE_GAIN, { delays.gainDelay, false } },
+ 		{ V4L2_CID_EXPOSURE, { delays.exposureDelay, false } },
+ 	};
++	/* Written first, so a longer exposure fits in its frame (soft IPA). */
++	if (sensor_->controls().count(V4L2_CID_VBLANK))
++		params[V4L2_CID_VBLANK] = { delays.vblankDelay, true };
+ 	delayedCtrls_ = std::make_unique<DelayedControls>(sensor_->device(), params);
+ 
+ 	LOG(SimplePipeline, Debug)
