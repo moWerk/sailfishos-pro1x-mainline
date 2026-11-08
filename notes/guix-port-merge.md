@@ -49,5 +49,13 @@ oFono equivalent; a project of its own).
   - With 0067, each plug edge raises the MBHC switch interrupt (2 counts per cycle). Without
     it, nothing counted. But no plug is ever reported, and "Elect Insert" stays 0.
   - Next: a dynamic-debug kernel and `wcd-mbhc-v2.c` debug output during one replug.
-  - UCM is ready for it: Headphones has `JackControl "Headphone Jack"` and priority 300,
-    above the speaker's 200.
+  - UCM has `JackControl "Headphone Jack"` on Headphones. Priority 300 (above the speaker's
+    200) silenced the phone: with no jack report the port is "availability unknown", so
+    PulseAudio picked Headphones, which plays nothing. card-restore kept that profile after
+    the next boot, and the default sink became `sink.null`. Back to 100 until plugs report.
+  - **A plug during playback stalls the stream** (2026-11-08): the RX codec DMA PCM stays
+    RUNNING, but `hw_ptr` stops (0 while `appl_ptr` sits at a full buffer). The speaker
+    amplifiers then amplify an idle HPH stage: a constant hiss and no sound from any app.
+    No kernel error besides wcd937x "clk already disabled". Recovery without a reboot:
+    `pactl suspend-sink alsa_output.Pro1X.HiFi__Speaker__sink 1`, then `0`; the stream
+    reopens and plays. The browser segfaults when its stream goes away.
