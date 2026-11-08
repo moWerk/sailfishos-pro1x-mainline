@@ -112,8 +112,44 @@ follow_volume() {
 # the back end stall, but while it is on, the session keeps the stalled back ends from
 # restarting.
 voice_route() {
+  local tx=$1
+  [ "$1" = 1 ] && [ "$muted" = yes ] && tx=0 # in-call mute, see follow_mute
   amixer -q -c0 cset name='RX_CODEC_DMA_RX_0 Voice Mixer VoiceMMode1' "$1"
-  amixer -q -c0 cset name='VoiceMMode1 Capture Mixer VA_CODEC_DMA_TX_0' "$1"
+  amixer -q -c0 cset name='VoiceMMode1 Capture Mixer VA_CODEC_DMA_TX_0' "$tx"
+}
+
+# In-call mute. Untested; mirrors the Guix port's follow_mute (fxtec-pro1x-guix 8545724), whose
+# own status is "no effect yet". The call microphone goes codec -> DSP -> modem and never passes
+# PulseAudio, so the mute voicecall-manager asks ohmd for (org.maemo.Playback.Manager RequestMute)
+# cannot silence it. Follow voicecall-manager's isMicrophoneMuted (session bus) with the
+# codec-to-DSP capture route instead. Whether switching that mixer mid-call upsets the voice
+# session (see the back end stalls above) is not known.
+: "${DBUS_SESSION_BUS_ADDRESS:=unix:path=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/dbus/user_bus_socket}"
+export DBUS_SESSION_BUS_ADDRESS
+muted=no   # wanted state, also used by voice_route
+mute_now="" # last state applied
+mic_muted() {
+  dbus-send --session --print-reply --dest=org.nemomobile.voicecall / org.freedesktop.DBus.Properties.Get \
+    string:org.nemomobile.voicecall.VoiceCallManager string:isMicrophoneMuted 2>/dev/null |
+    awk '/boolean/ { print ($3 == "true") ? "yes" : "no"; exit }'
+}
+follow_mute() {
+  local m
+  m=$(mic_muted)
+  if [ -z "$m" ]; then
+    [ "$mute_now" = unknown ] || echo "microphone mute not readable from voicecall-manager"
+    mute_now=unknown
+    return
+  fi
+  muted=$m
+  [ "$m" = "$mute_now" ] && return
+  mute_now=$m
+  if [ "$m" = yes ]; then
+    amixer -q -c0 cset name='VoiceMMode1 Capture Mixer VA_CODEC_DMA_TX_0' 0
+  else
+    amixer -q -c0 cset name='VoiceMMode1 Capture Mixer VA_CODEC_DMA_TX_0' 1
+  fi
+  echo "microphone muted: $m"
 }
 
 alive() {
@@ -153,6 +189,8 @@ stop_pcm() {
     echo "voice session stopped"
   fi
   vp=""
+  muted=no # voicecall-manager unmutes when the last call is gone
+  mute_now=""
   voice_route 0
 }
 
@@ -195,6 +233,8 @@ while :; do
     stop_pcm # the last call ended
   fi
   sig=$now
+
+  [ -z "$vp" ] || follow_mute
 
   if [ -n "$sink" ]; then
     follow_volume

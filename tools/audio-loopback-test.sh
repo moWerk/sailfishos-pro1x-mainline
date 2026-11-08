@@ -20,7 +20,8 @@ sleep 0.5
 arecord -q -D hw:0,1 -f S16_LE -r 48000 -c 1 -d 2 /tmp/lb-tone.wav
 t=$(rms /tmp/lb-tone.wav)
 pkill speaker-test 2>/dev/null; sleep 1
-for c in HPHL HPHR; do amixer -c0 -q cset name="$c Volume" 12; done
+# back to the Speaker device level of HiFi.conf (20), since PulseAudio does not re-run it
+for c in HPHL HPHR; do amixer -c0 -q cset name="$c Volume" 20; done
 pa "suspend-sink alsa_output.Pro1X.HiFi__Speaker__sink 0"; pa "suspend-source alsa_input.Pro1X.HiFi__Mic__source 0"
 verdict=SILENT; [ "$q" -gt 0 ] && [ $((t * 10)) -ge $((q * ratio * 10)) ] && verdict=PLAYS
 echo "quiet=$q tone=$t vol=$vol $verdict"

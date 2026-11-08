@@ -90,3 +90,14 @@ at the earlier, much louder level the earpiece fed back into the mic), wired hea
 Test helpers on the phone: a stream into the call sink is routed to the null sink by the audio
 policy unless it carries `pro1x.voice=keepalive`, and a recording without that property in
 the "Voice Call" profile crashes PulseAudio (`pa_channels_valid` assertion).
+
+## In-call mute (0.1-8, untested)
+
+The call microphone goes codec -> DSP -> modem, so the PulseAudio mute that voicecall-manager's
+playback-manager plugin requests from ohmd (`org.maemo.Playback.Manager.RequestMute`) cannot
+reach it. ofono's CallVolume `Muted` is not used by voicecall-manager. The helper now polls
+voicecall-manager's `isMicrophoneMuted` (session bus, `org.nemomobile.voicecall` `/`) during a
+call and switches `VoiceMMode1 Capture Mixer VA_CODEC_DMA_TX_0` off while it is true, as the
+Guix port does from the PipeWire source mute (whose own status: no effect yet). To test: mute
+and unmute in a call, ask the other side; watch `microphone muted:` in the helper log, and
+whether the call audio survives the mixer switch.

@@ -110,3 +110,24 @@ xkb_symbols "de" {
 Alternative, only if the DT must stay KEY_FN (pmOS/keyd parity): build a qmap with `kmap2qmap` adding keycode 464 -> AltGr, pass
 `LIPSTICK_OPTIONS=-plugin evdevkeyboard:keymap=/usr/share/qt5/keymaps/pro1x.qmap` in droid-hal-device.conf, and bind `<I472>` to
 ISO_Level3_Shift in the symbols file. Untested; more pieces, and Fn then lives on a different evdev device from the letters.
+
+## 4. Fn media keys from the Guix port: proposal, not applied (2026-11-08)
+
+The Guix port's keyd Fn layer (US caps) gives Fn+1..0,-,= = F1-F12, Fn+, . = volume down/up,
+Fn+; = play/pause, Fn+' = mute, Fn+[ ] = brightness down/up, Fn+W/B = Wi-Fi/Bluetooth,
+Fn+arrows = PgUp/PgDn/Home/End, Fn+Space = keyboard backlight.
+
+Not added to `symbols/fxtec_vndr/pro1x`, for two reasons:
+- Every candidate key already has a level 3 (our Fn = AltGr): the number row and ü + ö ä carry
+  the printed Fn legends, and `de(nodeadkeys)` fills the rest (comma `periodcentered`, period
+  `ellipsis`, letters `ae`, `oslash` and so on). Any XF86 keysym would replace one of them.
+- On SFOS volume and brightness are not keysym driven: mce and lipstick act on evdev
+  KEY_VOLUMEUP/DOWN from the input devices. An XF86AudioRaiseVolume keysym only reaches the
+  focused client, so it would most likely not move the system volume; play/pause would work only
+  in an app that handles Qt::Key_MediaTogglePlayPause in focus.
+
+If wanted, the route that works for system volume is at the evdev level: an Fn layer in the
+keyboard driver's keymap (kernel) or a small uinput remapper emitting KEY_VOLUMEUP etc., not XKB.
+A keysym-only variant that conflicts least: level 4 (Fn+Shift) on <AB08>/<AB09> for
+XF86AudioLowerVolume/XF86AudioRaiseVolume (replaces `multiply`/`division`), test with
+`xkbcli compile-keymap` and in an app first.
