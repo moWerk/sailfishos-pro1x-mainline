@@ -80,6 +80,9 @@ private:
     void handleQmi(const QByteArray &packet);
     void handlePosition(const Tlvs &tlvs);
     void handleSatellites(const Tlvs &tlvs);
+    bool sendXtraPart();
+    void handleXtraInjected(const Tlvs &tlvs);
+    void handleXtraValidity(const Tlvs &tlvs);
 
     int m_fd;
     QSocketNotifier *m_notifier;
@@ -91,6 +94,8 @@ private:
     quint16 m_transaction;
     quint32 m_minIntervalMs;
     QList<int> m_usedPrns;
+    QByteArray m_xtraData;
+    int m_xtraPart;
 };
 
 #endif // QMILOCATIONBACKEND_H

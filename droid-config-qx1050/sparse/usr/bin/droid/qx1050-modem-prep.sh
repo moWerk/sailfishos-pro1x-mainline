@@ -19,6 +19,13 @@
 #    IMS stack for, and the caller hears "not available" until an outgoing call has made the
 #    phone register for circuit-switched voice. cs-preferred keeps incoming calls working
 #    (tested 2026-10-30, awake and suspended). qmicli cannot set it: qx1050-voice-domain.py.
+# 5. The GNSS engine comes up locked for injected data (GET ENGINE LOCK: lock-client mask 1):
+#    fixes work, but time and XTRA injection are refused (notes/gnss.md, 2026-11-08). Unlock
+#    it as Android's location HAL does; the EFS is writable, so this is a no-op once stored.
+# 6. qrtr modem wake (kernel 0066, from the Guix port): data for user space from the modem
+#    wakes the system, filtered to the source ports in /sys/module/qrtr/parameters/wake_ports.
+#    Only the voice (9) and messaging (5) services, so network indications do not wake it;
+#    their ports come from the name service and can change with a modem restart.
 log() { echo "qx1050-modem-prep: $*"; }
 uim() { qrtr-lookup 2>/dev/null | awk '$1 == 11 { f = 1 } END { exit !f }'; }
 
@@ -51,6 +58,13 @@ prep() {
   done
   log "rmnet links ready"
   /usr/bin/droid/qx1050-voice-domain.py cs-preferred 2>&1 | sed 's/^/qx1050-modem-prep: /'
+  qmicli -d qrtr://0 --loc-set-engine-lock=none >/dev/null 2>&1 \
+    && log "GNSS engine unlocked" || log "GNSS engine unlock failed"
+  p=/sys/module/qrtr/parameters/wake_ports
+  if [ -w $p ]; then
+    ports=$(qrtr-lookup 2>/dev/null | awk '$4 == 0 && ($1 == 9 || $1 == 5) { printf "%s%s", sep, $5; sep = "," }')
+    [ -n "$ports" ] && echo "$ports" > $p && log "modem wake ports: $ports"
+  fi
 }
 
 i=0

@@ -68,13 +68,17 @@ const quint16 LocStop = 0x0023;
 const quint16 LocPositionReport = 0x0024;
 const quint16 LocGnssSvInfo = 0x0025;
 const quint16 LocInjectTimeRequest = 0x0028;
+const quint16 LocInjectPredictedOrbitsRequest = 0x0029;
 const quint16 LocEngineState = 0x002B;
 const quint16 LocInjectUtcTime = 0x0038;
 const quint16 LocInjectPosition = 0x0039;
+const quint16 LocGetPredictedOrbitsValidity = 0x0037;
+const quint16 LocInjectXtraData = 0x00A7;
 
 const quint64 EventPositionReport = 1 << 0;
 const quint64 EventGnssSatelliteInfo = 1 << 1;
 const quint64 EventInjectTimeRequest = 1 << 4;
+const quint64 EventInjectPredictedOrbitsRequest = 1 << 5;
 const quint64 EventEngineState = 1 << 7;
 const quint64 EventFixSessionState = 1 << 8;
 
@@ -93,6 +97,10 @@ const int SvEntrySize = 28;
 // below this the modem may distrust injected data (ModemManager uses the same floors)
 const quint32 MinTimeUncertaintyMs = 1000;
 const float MinPositionUncertaintyM = 1000;
+// INJECT XTRA DATA takes the file in parts of at most 1 KiB, one at a time
+const int XtraPartSize = 1024;
+// download a new file when the modem's has less than this left (files last 168 h)
+const qint64 XtraRefreshSeconds = 24 * 3600;
 
 QByteArray tlv(quint8 type, const QByteArray &value)
 {
@@ -161,7 +169,7 @@ qint64 monotonicMs()
 QmiLocationBackend::QmiLocationBackend(QObject *parent)
     : HybrisLocationBackend(parent), m_fd(-1), m_notifier(nullptr), m_localNode(0), m_node(0),
       m_port(0), m_haveService(false), m_sessionWanted(false), m_transaction(0),
-      m_minIntervalMs(1000)
+      m_minIntervalMs(1000), m_xtraPart(0)
 {
 }
 
@@ -275,9 +283,65 @@ void QmiLocationBackend::gnssXtraInit()
 
 bool QmiLocationBackend::gnssXtraInjectXtraData(QByteArray &xtraData)
 {
-    Q_UNUSED(xtraData)
-    qCDebug(lcGeoclueHybris) << "QMI LOC: XTRA injection is not implemented yet";
-    return false;
+    if (!m_haveService || xtraData.isEmpty())
+        return false;
+    // the modem takes the next part only after the indication for this one;
+    // it checks the assembled file at the last part
+    m_xtraData = xtraData;
+    m_xtraPart = 0;
+    return sendXtraPart();
+}
+
+bool QmiLocationBackend::sendXtraPart()
+{
+    const int parts = (m_xtraData.size() + XtraPartSize - 1) / XtraPartSize;
+    const QByteArray part = m_xtraData.mid(m_xtraPart * XtraPartSize, XtraPartSize);
+    ++m_xtraPart;
+    return sendRequest(LocInjectXtraData,
+                       tlv(0x01, le<quint32>(quint32(m_xtraData.size())))
+                       + tlv(0x02, le<quint16>(quint16(parts)))
+                       + tlv(0x03, le<quint16>(quint16(m_xtraPart)))
+                       + tlv(0x04, le<quint16>(quint16(part.size())) + part));
+}
+
+void QmiLocationBackend::handleXtraInjected(const Tlvs &tlvs)
+{
+    if (m_xtraData.isEmpty())
+        return;
+    quint32 status = 1;
+    readLe(tlvs.value(0x01), 0, &status);
+    const int parts = (m_xtraData.size() + XtraPartSize - 1) / XtraPartSize;
+    if (status != 0) {
+        quint16 code = 0;
+        readLe(tlvs.value(0x10), 0, &code);
+        qWarning("QMI LOC: XTRA part %d of %d refused, status %u, 0x10 %u (engine locked?)",
+                 m_xtraPart, parts, status, code);
+        m_xtraData.clear();
+    } else if (m_xtraPart < parts) {
+        sendXtraPart();
+    } else {
+        qCDebug(lcGeoclueHybris) << "QMI LOC: XTRA injected," << m_xtraData.size() << "bytes";
+        m_xtraData.clear();
+        sendRequest(LocGetPredictedOrbitsValidity, QByteArray());
+    }
+}
+
+void QmiLocationBackend::handleXtraValidity(const Tlvs &tlvs)
+{
+    quint32 status = 1;
+    readLe(tlvs.value(0x01), 0, &status);
+    quint64 start = 0;
+    quint16 hours = 0;
+    // 0x10: start of the validity window in UTC seconds, and its length in hours
+    if (status != 0 || !readLe(tlvs.value(0x10), 0, &start) || !readLe(tlvs.value(0x10), 8, &hours)) {
+        qCDebug(lcGeoclueHybris) << "QMI LOC: no XTRA data, requesting a download";
+        QMetaObject::invokeMethod(staticProvider, "xtraDownloadRequest", Qt::QueuedConnection);
+        return;
+    }
+    const qint64 left = qint64(start) + qint64(hours) * 3600 - QDateTime::currentMSecsSinceEpoch() / 1000;
+    qCDebug(lcGeoclueHybris) << "QMI LOC: XTRA valid for" << left / 3600 << "more hours";
+    if (left < XtraRefreshSeconds)
+        QMetaObject::invokeMethod(staticProvider, "xtraDownloadRequest", Qt::QueuedConnection);
 }
 
 void QmiLocationBackend::aGnssInit()
@@ -410,7 +474,7 @@ void QmiLocationBackend::registerAndStart()
 {
     // registration belongs to this client and is lost with a modem restart: send it each time
     const quint64 events = EventPositionReport | EventGnssSatelliteInfo | EventInjectTimeRequest
-            | EventEngineState | EventFixSessionState;
+            | EventInjectPredictedOrbitsRequest | EventEngineState | EventFixSessionState;
     sendRequest(LocRegisterEvents, tlv(0x01, le<quint64>(events)));
 
     qCDebug(lcGeoclueHybris) << "QMI LOC start, interval" << m_minIntervalMs << "ms";
@@ -418,6 +482,9 @@ void QmiLocationBackend::registerAndStart()
                 + tlv(0x10, le<quint32>(RecurrencePeriodic))
                 + tlv(0x12, le<quint32>(IntermediateReportsOff))
                 + tlv(0x13, le<quint32>(m_minIntervalMs)));
+    // a file older than a day is replaced (the provider downloads only while online
+    // assistance is allowed in the location settings)
+    sendRequest(LocGetPredictedOrbitsValidity, QByteArray());
 }
 
 void QmiLocationBackend::readSocket()
@@ -516,6 +583,16 @@ void QmiLocationBackend::handleQmi(const QByteArray &packet)
     case LocInjectTimeRequest:
         qCDebug(lcGeoclueHybris) << "QMI LOC requests UTC time";
         QMetaObject::invokeMethod(staticProvider, "injectUtcTime", Qt::QueuedConnection);
+        break;
+    case LocInjectPredictedOrbitsRequest:
+        qCDebug(lcGeoclueHybris) << "QMI LOC requests XTRA data";
+        QMetaObject::invokeMethod(staticProvider, "xtraDownloadRequest", Qt::QueuedConnection);
+        break;
+    case LocGetPredictedOrbitsValidity:
+        handleXtraValidity(tlvs);
+        break;
+    case LocInjectXtraData:
+        handleXtraInjected(tlvs);
         break;
     case LocInjectUtcTime:
     case LocInjectPosition:
