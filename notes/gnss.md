@@ -287,12 +287,45 @@ lock to none at every boot, because Android's location HAL does the same.
   survive a reboot. This is not checked yet. The Guix and NixOS ports run rmtfs read-only and
   repeat the unlock at every boot.
 
-**To do:**
-- The provider unlocks at `gnssInit` when 0x3B reports a nonzero mask.
-- The XTRA download comes from the 0x36 URLs, and the injection goes through
-  `gnssXtraInjectXtraData`.
-- Measure the time to first fix outdoors with and without XTRA, from a forced cold start
-  (0xA6).
+Done since: the unlock runs in `qx1050-modem-prep.sh` at every modem start. The provider
+downloads XTRA from `/etc/gps_xtra.ini` (the URLs 0x36 names) and injects it part by part.
+
+## Time to first fix with and without XTRA (2026-11-08, patio, native provider)
+
+Setup:
+- Kernel kbd, provider 0.2.24-2, and a QML PositionSource client (`scripts/gnss-test-session.sh`
+  logic, A/B in a script on the phone).
+- Each run starts with `qmicli --loc-delete-assistance-data`, a cold start. That also deletes
+  the XTRA data, the time and the position.
+- The provider injects NTP time when the modem asks, in both kinds of run.
+- "No XTRA" means the provider ran without `/etc/gps_xtra.ini`. Whether a run really had XTRA
+  comes from the provider's journal ("XTRA injected"), not from the script's label (see the
+  pitfall below).
+- Screen kept on (mce stay-on), on a power bank. Up to 43 satellites were visible.
+
+| XTRA injected | first fix (s) |
+|---|---|
+| yes | 12, 13, 14, 133 |
+| no (time only) | 73, 97, 183, 318, none in 600, none in 720 |
+
+Median about 13 s with XTRA against about 4 min without. Without XTRA, 2 of 6 runs did not get a
+fix in 10-12 min. XTRA arrives about 1 s after the start (47 KB over Wi-Fi), well before the
+first fix.
+
+Pitfalls found while measuring (all in the test setup, not the provider):
+- **The QML client's environment.** Copying lipstick's environment copies its
+  `QT_QPA_PLATFORM=eglfs`; the client then dies at start ("OpenGL windows cannot be mixed").
+  geoclue-master drops the provider within milliseconds, which looks exactly like "engine on,
+  engine off" in the provider log. The client needs `QT_QPA_PLATFORM=wayland`.
+- **A D-Bus poller starts the provider.** `GetSatellite` on the provider's bus name activates
+  it, and the provider reads `gps_xtra.ini` only at startup. A poller running between runs
+  therefore decides which configuration the next run gets.
+- **Suspend during a session.** With the screen off, autosleep suspended the phone during
+  GPS sessions; minutes went by between wakes. Nothing holds the system awake while a session
+  runs. Open: the provider (or geoclue-master's client) should hold a keepalive while
+  positioning, as the Android HAL holds its wakelock.
+- The modem sends satellite reports (0x25) only to the client that owns the session; a second
+  QMI client that registers only for them receives nothing.
 
 ## AGPS options (all through QMI LOC; names as in libqmi's `qmi-service-loc.json`,
 message IDs to be checked there before use)
