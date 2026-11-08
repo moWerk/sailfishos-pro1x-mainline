@@ -1,0 +1,41 @@
+From bb38d501be6b5d1a61ecb935fd07b460c26a3a59 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Sun, 8 Nov 2026 15:05:39 +0100
+Subject: [PATCH] arm64: dts: qcom: sm6115-pro1x: Describe the headphone jack
+ switches
+
+The headphone jack's detect switches are normally closed, as in the
+vendor device tree (qcom,msm-mbhc-hphl-swh and qcom,msm-mbhc-gnd-swh set
+to 1). Described as normally open, the WCD9370's MBHC raised no insert or
+remove interrupt and the jack always read unplugged, so audio never moved
+from the speaker to headphones. The button and plug voltage thresholds are
+the ones other WCD937x/WCD938x boards use.
+---
+ arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts b/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
+index 898174961..ddace69db 100644
+--- a/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
++++ b/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
+@@ -414,6 +414,17 @@ wcd9370: audio-codec {
+ 		qcom,micbias3-microvolt = <1800000>;
+ 		qcom,micbias4-microvolt = <1800000>;
+ 
++		/*
++		 * Both jack detect switches are normally closed (stock BENGAL IDP overlay:
++		 * qcom,msm-mbhc-hphl-swh = <1>, qcom,msm-mbhc-gnd-swh = <1>). Without this
++		 * MBHC never saw a plug: no insert or remove interrupt, the jack stayed off.
++		 */
++		qcom,hphl-jack-type-normally-closed;
++		qcom,ground-jack-type-normally-closed;
++		qcom,mbhc-buttons-vthreshold-microvolt = <75000 150000 237000 500000 500000 500000 500000 500000>;
++		qcom,mbhc-headset-vthreshold-microvolt = <1700000>;
++		qcom,mbhc-headphone-vthreshold-microvolt = <50000>;
++
+ 		qcom,rx-device = <&wcd937x_rx>;
+ 		qcom,tx-device = <&wcd937x_tx>;
+ 
+-- 
+2.56.0
+
