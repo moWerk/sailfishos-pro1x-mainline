@@ -7,7 +7,7 @@ Running on pro1x#2 as kernel kb2 (#9 + DTB with 0067).
 
 | Change | Where | Result on pro1x#2 |
 |---|---|---|
-| Bluetooth LE (`BT_LE`, `BT_LE_L2CAP_ECRED`, `BT_RFCOMM_TTY`, `UHID`) | `kernel/sfos.fragment` | **works**: Amazfish (harbour-amazfish 2.9.0, Chum) found and paired a BLE watch. Before, arm64 defconfig left no LE at all |
+| Bluetooth LE (`BT_LE`, `BT_LE_L2CAP_ECRED`, `BT_RFCOMM_TTY`, `UHID`) | `kernel/sfos.fragment` | **works**: Amazfish (harbour-amazfish 2.9.0, Chum) bonded two AsteroidOS watches. LE Secure Connections with numeric comparison, the Jolla agent's confirmation dialog, then time sync and notifications. Before, arm64 defconfig left no LE at all |
 | GNSS engine unlock | `qx1050-modem-prep.sh` | **works**: time and XTRA injection accepted (`gnss.md`) |
 | XTRA through the native provider | `geoclue-provider-hybris-qmi`, `/etc/gps_xtra.ini` | **works indoors**: after deleting all assistance data the provider downloaded 47722 B and the modem reports 166 h. TTFF outdoors not measured yet |
 | qrtr modem wake by source port (0066) | kernel, `qx1050-modem-prep.sh` | wake_ports set at each modem start (voice and SMS ports, which move with a modem restart). Effect with a SIM untested |
@@ -26,6 +26,13 @@ not XF86 keysyms; proposal in `research/research-keyboard.md`), VoLTE through 81
 oFono equivalent; a project of its own).
 
 ## Open after the hands-on run
+
+- **BLE pairing with the sol watch (2026-11-08, btmon on both sides):** the first attempts
+  failed on the watch. The phone's SMP Pairing Request reached sol's controller, but sol's host
+  saw it only minutes later: its runtime-suspended BT UART never woke for receive data. After
+  the meta-smartwatch session kept that UART awake, sol bonded. Later link drops (supervision
+  timeout 27 s after bonding, then 0x3e at a reconnect) are on the watch side too. Phone tool:
+  `btmon` from `bluez5-tools` (Jolla repo), `btmon -w file`, then `btmon -T -r file`.
 
 - **Camera AF** (author, 2026-11-08, without 0019): 50 cm focuses; very close macro does not
   trigger AF; the tap-to-focus circle turns red even when the image gets sharp after 2-3 s.
