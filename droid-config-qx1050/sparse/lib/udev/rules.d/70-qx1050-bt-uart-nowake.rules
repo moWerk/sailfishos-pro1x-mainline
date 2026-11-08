@@ -1,0 +1,7 @@
+# The Bluetooth chip's UART (qcom_geni_serial 4a8c000.serial) must not wake the system: on the
+# Guix port it ended a suspend after 2.2 s (IRQ 110, 4a8c000.serial:wakeup, 2026-11-01), and their
+# pro1x-sleep turns its wakeup off while suspended. SFOS suspends through autosleep, with no
+# per-suspend hook, so it stays off. Bluetooth keeps working; a BT device can no longer wake the
+# phone. At bind (probe enables it, device_init_wakeup) and at add: the driver is built in and
+# binds before udev runs, and the boot-time trigger replays add, not bind. Unmeasured (notes/sleep.md).
+ACTION=="add|bind", SUBSYSTEM=="platform", DRIVER=="qcom_geni_serial", KERNEL=="4a8c000.serial", ATTR{power/wakeup}="disabled"

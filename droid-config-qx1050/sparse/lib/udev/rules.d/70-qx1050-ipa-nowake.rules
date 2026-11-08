@@ -1,0 +1,6 @@
+# The modem data path (IPA) interrupt must not wake the system: over mobile data it ended each
+# suspend within seconds on the Guix port (2026-11-02), and counted 7 wakes in a 15 min window
+# here (notes/sleep.md, 2026-11-02). Calls and SMS wake through the modem glink edge (0058-0060),
+# not IPA; with this rule nothing arriving over mobile data alone wakes the phone (push messages
+# wait for the next wake). At bind, because probe enables it. Unmeasured: remove this file to undo.
+ACTION=="bind", SUBSYSTEM=="platform", DRIVER=="ipa", KERNEL=="5840000.ipa", ATTR{power/wakeup}="disabled"

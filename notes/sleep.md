@@ -502,3 +502,20 @@ Kernel zz-yw2 (0050, 0054-0057), screen off, unplugged, QG windows.
   min, 14 suspends. The crash after a modem recovery needs an ath10k that only ran its boot-time
   power sequence; one Wi-Fi off/on after boot prevents it (`notes/modem-recovery-crash.md`,
   `qx1050-wifi-cycle.service`).
+
+## Wake hygiene from the Guix port: BT UART and IPA (2026-11-08, unmeasured)
+
+- The Guix port's pro1x-sleep turns two wakeups off for each suspend and on again after:
+  `4a8c000.serial` (the Bluetooth chip's UART; it ended a suspend there after 2.2 s, IRQ 110) and
+  `5840000.ipa` (over mobile data its interrupt ended each suspend within seconds). The slider/hall
+  gpio-keys wake they also drop stays on here: SFOS wakes on slide-open.
+- SFOS suspends through autosleep, with no per-suspend hook, so both stay off for good:
+  `sparse/lib/udev/rules.d/70-qx1050-bt-uart-nowake.rules` and `70-qx1050-ipa-nowake.rules`,
+  at bind (probe enables them through `device_init_wakeup`). Each file undoes on its own.
+- Cost: nothing over mobile data alone wakes the phone (calls and SMS wake through the modem
+  glink edge, 0058-0060; IPA counted 7 wakes in the 15 min and in the 2 h window above), and no
+  Bluetooth device can wake it.
+- To do: A/B standby current with the QG windows (qgsleep, screen off, unplugged, mobile data
+  on, BT on and paired), with and without each rule; wakeup counts per source from
+  `/sys/class/wakeup`. Check after boot that `power/wakeup` reads `disabled` on both devices, and
+  that an SMS and a call while asleep still arrive at once.
