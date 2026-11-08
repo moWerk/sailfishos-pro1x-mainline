@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# Inject UTC time, then an XTRA file (0x35, 1 KiB parts), then query validity (0x37)
+# Inject UTC time, then an XTRA file (0xA7, 1 KiB parts), then query validity (0x37).
+# Needs the GNSS engine unlocked first: qmicli -d qrtr://0 --loc-set-engine-lock=none
 import os, ctypes, select, struct, subprocess, sys, time
 libc = ctypes.CDLL(None, use_errno=True)
 class SA(ctypes.Structure):
@@ -66,6 +67,6 @@ send(0x37); r = wait(0x37)
 print("validity", r and {hex(k): v.hex() for k, v in r.items()})
 if r and 0x10 in r:
     ts, hrs = struct.unpack("<QH", r[0x10])
-    print("valid from", time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(ts / 1000)), "for", hrs, "h")
+    print("valid from", time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(ts)), "for", hrs, "h")
 if os.environ.get("SESSION"):
     send(0x23, tlv(0x01, b"")); wait(0x23, 2)

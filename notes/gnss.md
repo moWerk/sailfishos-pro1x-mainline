@@ -267,12 +267,32 @@ with `SESSION=1` / `VERBOSE=1`; plain QRTR, no fix since the day before):
    a part number.
 6. **GET PREDICTED ORBITS DATA VALIDITY (0x37)** stays at general failure: no data.
 
-So framing, file variant and the XTRA switch are fine. What remains is guess (1): the engine
-has no valid time. Time injection fails as well, and an XTRA 3 file cannot be checked without
-time. The next test is outdoors: get a fix, then inject time and XTRA while the engine has
-GPS time. If that works, injection right after a fix (or a stored XTRA kept fresh by later
-fixes) is the route without a SIM. If it fails again, compare with the hybris HAL on the same
-firmware.
+So framing, file variant and the XTRA switch are fine.
+
+**Cause found 2026-11-08: the engine lock.** The lead came from the Guix port
+(mlaparie/fxtec-pro1x-guix 93a9b7f, taken from nyymi609's NixOS port bb65696). It sets the
+lock to none at every boot, because Android's location HAL does the same.
+- **GET ENGINE LOCK (0x3B)** answers in the newer format: no lock type TLV 0x10, but 0x12, a
+  u64 lock-client mask, set to 1. That is enough to block every injection while mobile-initiated
+  fixes still work, which is why our fixes never showed the lock.
+- **SET ENGINE LOCK (0x3A)**, TLV 0x01 u32: libqmi's `QmiLocLockType` starts at 1 (NONE=1,
+  MI=2, MT=3, ALL=4). The value 0 gives INVALID_ARG (0x30). `qmicli -d qrtr://0
+  --loc-set-engine-lock=none` sends 1 and is accepted. The mask reads 0 afterwards.
+- **After the unlock, indoors and with no fix:**
+  - INJECT UTC TIME gets status 0 for source 1 and for source 2.
+  - The same `xtra3grcej.bin` is accepted.
+  - GET PREDICTED ORBITS DATA VALIDITY now has TLV 0x10: u64 start in **UTC seconds**
+    (2026-11-07 09:00, the file's generation time) and u16 duration of 168 h.
+- **Persistence:** rmtfs keeps the EFS writable here (`-o /var/lib/rmtfs`), so the unlock should
+  survive a reboot. This is not checked yet. The Guix and NixOS ports run rmtfs read-only and
+  repeat the unlock at every boot.
+
+**To do:**
+- The provider unlocks at `gnssInit` when 0x3B reports a nonzero mask.
+- The XTRA download comes from the 0x36 URLs, and the injection goes through
+  `gnssXtraInjectXtraData`.
+- Measure the time to first fix outdoors with and without XTRA, from a forced cold start
+  (0xA6).
 
 ## AGPS options (all through QMI LOC; names as in libqmi's `qmi-service-loc.json`,
 message IDs to be checked there before use)
