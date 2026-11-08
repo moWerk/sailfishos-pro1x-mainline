@@ -59,3 +59,21 @@ oFono equivalent; a project of its own).
     No kernel error besides wcd937x "clk already disabled". Recovery without a reboot:
     `pactl suspend-sink alsa_output.Pro1X.HiFi__Speaker__sink 1`, then `0`; the stream
     reopens and plays. The browser segfaults when its stream goes away.
+  - Second run the same evening: the plug *was* reported this time (PulseAudio moved to
+    "HiFi (Headphones, Mic)", the Headphones sink), sound came from both speaker and
+    headphones, and the unplug stalled the stream the same way (Headphones sink RUNNING,
+    `hw_ptr` 0). So detection works at least sometimes, the speaker amplifiers do not go
+    quiet with `Spk0/Spk1 OUT Switch` 0 on that path, and the stall follows a device switch
+    while a stream runs, not the plug itself.
+
+## Charge limit at 80 % "ignored" (2026-11-08)
+
+Not mce: on the power bank mce disabled charging at 18:25 (`mch_charging_state: allowed ->
+disabled`, kernel "charging disabled"). The reading then went 84 -> 98 % in five minutes
+and mce saw `full`, which no charger can do. After the next boot the gauge read 79 %.
+
+Cause in `pro1x-adc-battery`: with USB in and charging held off, the battery current is near
+0, so the OCV anchor branch runs every poll, on a voltage still raised by the charge before.
+0036's relaxation guard only covers the time after unplugging (`relaxing` needs `!usb`).
+Fix to make: no OCV anchoring while USB is in and the battery is not charging, and the
+relaxation window counted from the end of charging, not from the unplug.
