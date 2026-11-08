@@ -1,0 +1,61 @@
+From 9d847a1c423926d938d58a5d40ced4a2433e6612 Mon Sep 17 00:00:00 2001
+From: nyymi <nyymi@nyyminen.es>
+Date: Sun, 8 Nov 2026 13:58:38 +0100
+Subject: [PATCH 64/66] drm/panel: boe-bf060y8m-aj0: optional unused lines at
+ the panel edges
+
+Module parameters top_gap and bottom_gap (0-400 lines, even, default 0)
+shrink the mode's vdisplay into the front porch while keeping vtotal and
+vsync, so the panel still runs at 60 Hz. Hides the dead rows that an aged
+or replacement panel shows at its edges. Off by default.
+
+(from nyymi609/fxtec-pro1x-nixos 09c10bf and fixes, via
+mlaparie/fxtec-pro1x-guix device/kernel/patches/pro1x-panelgap.patch)
+---
+ .../gpu/drm/panel/panel-boe-bf060y8m-aj0.c    | 21 +++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+diff --git a/drivers/gpu/drm/panel/panel-boe-bf060y8m-aj0.c b/drivers/gpu/drm/panel/panel-boe-bf060y8m-aj0.c
+index 9effebea2..cda5485db 100644
+--- a/drivers/gpu/drm/panel/panel-boe-bf060y8m-aj0.c
++++ b/drivers/gpu/drm/panel/panel-boe-bf060y8m-aj0.c
+@@ -212,15 +212,36 @@ static const struct drm_display_mode boe_bf060y8m_aj0_mode = {
+ 	.height_mm = 136, /* 136.08 mm */
+ };
+ 
++static unsigned int top_gap;
++module_param(top_gap, uint, 0444);
++MODULE_PARM_DESC(top_gap, "Lines at the top of the panel left unused (0-400, default 0)");
++
++static unsigned int bottom_gap;
++module_param(bottom_gap, uint, 0444);
++MODULE_PARM_DESC(bottom_gap, "Lines at the bottom of the panel left unused (0-400, default 0)");
++
++static unsigned int gap_lines(unsigned int gap)
++{
++	return min(gap, 400U) & ~1U;
++}
++
+ static int boe_bf060y8m_aj0_get_modes(struct drm_panel *panel,
+ 				      struct drm_connector *connector)
+ {
+ 	struct drm_display_mode *mode;
++	unsigned int gap = gap_lines(top_gap) + gap_lines(bottom_gap);
+ 
+ 	mode = drm_mode_duplicate(connector->dev, &boe_bf060y8m_aj0_mode);
+ 	if (!mode)
+ 		return -ENOMEM;
+ 
++	if (gap) {
++		/* vsync and vtotal stay put: the lines become front porch */
++		mode->vdisplay -= gap;
++		mode->height_mm = mode->height_mm * mode->vdisplay /
++				  boe_bf060y8m_aj0_mode.vdisplay;
++	}
++
+ 	drm_mode_set_name(mode);
+ 
+ 	mode->type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED;
+-- 
+2.56.0
+

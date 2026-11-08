@@ -55,6 +55,20 @@ CONFIG_L2TP_V3=y
 CONFIG_BT_RFCOMM=m
 CONFIG_BT_BNEP=m
 CONFIG_BT_BNEP_MC_FILTER=y
+# Bluetooth LE: arm64 defconfig turns it off, which leaves no BLE at all (watches,
+# LE earbuds, LE input). UHID for BLE HID over GATT (bluez's input-hog).
+# Same set as the Guix port (mlaparie/fxtec-pro1x-guix 9900070 and next).
+CONFIG_BT_LE=y
+CONFIG_BT_LE_L2CAP_ECRED=y
+CONFIG_BT_RFCOMM_TTY=y
+CONFIG_UHID=m
+
+# LED pattern trigger (notification blink patterns) and compressed firmware files,
+# as in the Guix port
+CONFIG_LEDS_TRIGGER_PATTERN=m
+CONFIG_FW_LOADER_COMPRESS=y
+CONFIG_FW_LOADER_COMPRESS_XZ=y
+CONFIG_FW_LOADER_COMPRESS_ZSTD=y
 
 # Own kernel tree (port/kernel): name the release so it is never mistaken for the NixOS one
 CONFIG_LOCALVERSION="-qx1050"
