@@ -75,5 +75,7 @@ and mce saw `full`, which no charger can do. After the next boot the gauge read 
 Cause in `pro1x-adc-battery`: with USB in and charging held off, the battery current is near
 0, so the OCV anchor branch runs every poll, on a voltage still raised by the charge before.
 0036's relaxation guard only covers the time after unplugging (`relaxing` needs `!usb`).
-Fix to make: no OCV anchoring while USB is in and the battery is not charging, and the
-relaxation window counted from the end of charging, not from the unplug.
+Fix (0068, w-73 72ff0faf7): the relaxation window runs from the last poll that charged, not
+from the last poll with USB present. Module swap on kernel kbd, 2026-11-09 02:09: mce stopped
+charging at 80 %, the reading stayed at 80 % for the logged 11 min at 0 mA while the voltage
+relaxed 4133 -> 4044 mV.

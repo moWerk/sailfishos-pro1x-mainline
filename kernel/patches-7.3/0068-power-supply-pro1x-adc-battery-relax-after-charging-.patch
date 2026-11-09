@@ -1,0 +1,91 @@
+From 72ff0faf737d6b3e1b75ccb79d048d0c655cba8d Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Mon, 9 Nov 2026 01:57:06 +0100
+Subject: [PATCH] power: supply: pro1x-adc-battery: relax after charging, not
+ after unplugging
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A charge limit stops charging with the charger still in. The battery
+current is then near zero, so the OCV anchor ran on every poll, on a
+voltage still raised by the charge before: the reading went from 84 to
+98 % in five minutes and mce took the battery for full. The next boot
+read 79 %. Count the relaxation window from the last poll that charged
+instead of the last poll with USB present, so it covers a held charge
+as well as an unplug.
+
+Disclosure: LLMGD-2 · origin O1 (the model wrote it from the mce and gauge logs of a charge-limit hold; built, not yet on the device)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=kernel; graded-by=model; retrieval=none
+---
+ drivers/power/supply/pro1x-adc-battery.c | 33 +++++++++++++-----------
+ 1 file changed, 18 insertions(+), 15 deletions(-)
+
+diff --git a/drivers/power/supply/pro1x-adc-battery.c b/drivers/power/supply/pro1x-adc-battery.c
+index c232e39f7..c6e0ea646 100644
+--- a/drivers/power/supply/pro1x-adc-battery.c
++++ b/drivers/power/supply/pro1x-adc-battery.c
+@@ -51,7 +51,7 @@
+ #define RATCHET_RELEASE		3	/* % the estimate may be off before the reading follows it back */
+ #define NOTIFY_MIN_MS		30000	/* every power_supply_changed() is a wake-up event */
+ #define PLUG_FOLLOW_MS		2000	/* re-read this soon after a plug change: the charge current ramps up */
+-#define RELAX_MS		(20 * 60 * 1000)	/* after a charger: the voltage still carries polarisation */
++#define RELAX_MS		(20 * 60 * 1000)	/* after charging: the voltage still carries polarisation */
+ #define DEFAULT_FULL_UAH	3150000
+ #define LEARN_POLLS		6
+ #define WIN			24	/* regression window: 2 minutes of samples */
+@@ -125,8 +125,8 @@ struct adc_battery {
+ 	bool status_changed;	/* the last update changed the status: notify at once */
+ 	unsigned int plug_follow;	/* after a plug change: 1 poll now, 2 the follow-up; raw current decides */
+ 	unsigned int reanchor_left;	/* polls left to re-anchor after a long sleep */
+-	ktime_t last_usb_t;	/* last poll with a charger in */
+-	bool had_usb;
++	ktime_t last_chg_t;	/* last poll with the battery charging */
++	bool had_chg;
+ 	unsigned long last_notify;
+ 	u16 sleep_ocv_raw;	/* last S3 good OCV seen, to use each one once */
+ 
+@@ -340,18 +340,6 @@ static bool adc_battery_update(struct adc_battery *b)
+ 	b->last_t = now;
+ 	b->have_t = true;
+ 
+-	/*
+-	 * For a while after a charger was in, even briefly, the battery voltage stays
+-	 * raised by charge polarisation and the OCV estimate reads high: a 30 s charge
+-	 * before a sleep lifted it by about 12 %. Until it has relaxed the count runs
+-	 * on current alone; a re-anchor that came due meanwhile waits for the end.
+-	 */
+-	if (usb) {
+-		b->last_usb_t = now;
+-		b->had_usb = true;
+-	}
+-	relaxing = !usb && b->had_usb && ktime_ms_delta(now, b->last_usb_t) < RELAX_MS;
+-
+ 	if (!b->filt_valid) {
+ 		b->v_f = vbat;
+ 		b->i_f = ibat;
+@@ -384,6 +372,21 @@ static bool adc_battery_update(struct adc_battery *b)
+ 			   (b->plug_follow && ibat < -CHARGING_MIN_UA));
+ 	full = usb && b->v_f >= (int)b->full_uv;
+ 
++	/*
++	 * For a while after charging, even briefly, the battery voltage stays raised by
++	 * charge polarisation and the OCV estimate reads high: a 30 s charge before a
++	 * sleep lifted it by about 12 %. That holds with the charger still in, too, when
++	 * a charge limit stops charging: near zero current the OCV anchor ran each poll
++	 * and took the reading from 84 to 98 % in five minutes. Until the battery has
++	 * relaxed the count runs on current alone; a re-anchor that came due meanwhile
++	 * waits for the end.
++	 */
++	if (charging) {
++		b->last_chg_t = now;
++		b->had_chg = true;
++	}
++	relaxing = !charging && b->had_chg && ktime_ms_delta(now, b->last_chg_t) < RELAX_MS;
++
+ 	if (!b->have_q) {
+ 		b->q_uah = est_q;
+ 		b->have_q = true;
+-- 
+2.56.0
+
