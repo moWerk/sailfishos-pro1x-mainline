@@ -13,7 +13,7 @@ Running on pro1x#2 as kernel kb2 (#9 + DTB with 0067).
 | qrtr modem wake by source port (0066) | kernel, `qx1050-modem-prep.sh` | wake_ports set at each modem start (voice and SMS ports, which move with a modem restart). Effect with a SIM untested |
 | awake_charging switch (0063), panel/DPU gap (0064, 0065) | kernel | carried, off or default |
 | LED pattern trigger, compressed firmware | `kernel/sfos.fragment` | built, unused |
-| libcamera 0018 (VBLANK, longer exposures) | `patches/libcamera` | installed; dark-scene effect not judged yet |
+| libcamera 0018 (VBLANK, longer exposures) | `patches/libcamera` | installed; the dark-scene improvement confirmed by the author (2026-11-10) |
 | libcamera 0019 (AGC 3x faster) | `patches/libcamera` | **dropped**: tap-to-focus at 50 cm never focused. Without it 50 cm focuses |
 | Speaker HPH Volume 20 | UCM `HiFi.conf`, `VoiceCall.conf` | **works**: a web stream at full volume on the speaker, no clipping (author) |
 | In-call mute (VoiceMMode1 capture mixer) | `qx1050-voicecall` 0.1-8 | needs a SIM |
