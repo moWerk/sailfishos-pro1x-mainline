@@ -1,0 +1,20 @@
+[Unit]
+Description=Fingerprint daemon for the Pro1X MicroArray sensor (mafp trusted application)
+Requires=dbus.socket qsee-app-loader@mafp.service
+After=dbus.socket qsee-app-loader@mafp.service
+Conflicts=shutdown.target
+
+[Service]
+Type=dbus
+BusName=org.sailfishos.fingerprint1
+ExecStart=/usr/bin/sailfish-fpd-mafp
+Restart=on-failure
+RestartSec=5
+StateDirectory=sailfish-fpd-mafp
+StateDirectoryMode=0700
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

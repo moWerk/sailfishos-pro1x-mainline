@@ -1,0 +1,31 @@
+[Unit]
+Description=Hold Qualcomm TEE application %i loaded
+Documentation=file:///usr/share/doc/qsee-supplicant/README.md
+Wants=qsee-supplicant.service
+After=qsee-supplicant.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStartPre=/usr/bin/systemctl --quiet is-active qsee-supplicant.service
+ExecStart=/usr/sbin/qsee-app-loader %i
+Restart=on-failure
+RestartSec=2s
+CapabilityBoundingSet=CAP_SYS_ADMIN
+NoNewPrivileges=yes
+PrivateDevices=no
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
