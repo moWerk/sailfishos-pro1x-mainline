@@ -1,0 +1,88 @@
+From 7ebd53eb73547af35fd60073cfd80f4d0f8592db Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Wed, 11 Nov 2026 15:56:14 +0100
+Subject: [PATCH] mediaplayer: turn videos by their image-orientation tag,
+ Release 16
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Portrait videos from a phone camera carry an orientation tag (rotate-90
+or rotate-270). On hybris the Sailfish video texture backend applies it
+through droideglsink; on a native port that sink does not exist, Qt's
+own renderer backs VideoOutput, and it ignores the tag: a portrait video
+played as a sideways landscape band in Gallery and in the camera app.
+
+playbin now gets a video filter, videoconvert ! videoflip with
+video-direction=auto, which rotates by the tag and passes unrotated
+streams through. QT_GSTREAMER_NO_AUTO_ORIENTATION=1 turns it off.
+Playback already decodes in software here (the V4L2 decoder offers
+DMABuf only), and an 11 s 1080p clip decodes and turns in 2.9 s.
+
+Tested on the device: rear and front portrait videos play upright in
+Gallery and in the camera app's viewer, landscape unchanged.
+
+Disclosure: LLMGD-2 · origin O1 (the model traced the cause and wrote the patch; the author tested playback on the device)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=code; graded-by=claude-opus-5-5; retrieval=none
+---
+ rpm/qtmultimedia.spec                         |  2 +-
+ .../mediaplayer/qgstreamerplayersession.cpp   | 30 +++++++++++++++++++
+ 2 files changed, 31 insertions(+), 1 deletion(-)
+
+diff --git a/rpm/qtmultimedia.spec b/rpm/qtmultimedia.spec
+index b88b77c8..c24df405 100644
+--- a/rpm/qtmultimedia.spec
++++ b/rpm/qtmultimedia.spec
+@@ -1,7 +1,7 @@
+ Name:       qt5-qtmultimedia
+ Summary:    Qt Multimedia module
+ Version:    5.6.2+v4l.20261024000000.qx1050
+-Release:    15%{?dist}
++Release:    16%{?dist}
+ License:    (LGPLv2 or LGPLv3) with exception or GPLv3 or Qt Commercial
+ URL:        https://www.qt.io/
+ Source0:    %{name}-%{version}.tar.bz2
+diff --git a/src/plugins/gstreamer/mediaplayer/qgstreamerplayersession.cpp b/src/plugins/gstreamer/mediaplayer/qgstreamerplayersession.cpp
+index 4dc82015..a35732ac 100644
+--- a/src/plugins/gstreamer/mediaplayer/qgstreamerplayersession.cpp
++++ b/src/plugins/gstreamer/mediaplayer/qgstreamerplayersession.cpp
+@@ -166,6 +166,36 @@ QGstreamerPlayerSession::QGstreamerPlayerSession(QObject *parent)
+ #endif
+         g_object_set(G_OBJECT(m_playbin), "flags", flags, NULL);
+ 
++#if GST_CHECK_VERSION(1,10,0)
++        // Turn the picture by the stream's image-orientation tag (portrait videos from a
++        // phone camera carry rotate-90 or rotate-270). The Sailfish video texture backend
++        // does this on hybris with droideglsink; Qt's own renderer ignores the tag, so a
++        // portrait video played as a sideways landscape band. videoflip in automatic mode
++        // passes unrotated streams through. QT_GSTREAMER_NO_AUTO_ORIENTATION=1 turns it off.
++        if (qEnvironmentVariableIsEmpty("QT_GSTREAMER_NO_AUTO_ORIENTATION")) {
++            GstElement *convert = gst_element_factory_make("videoconvert", NULL);
++            GstElement *flip = gst_element_factory_make("videoflip", NULL);
++            if (convert && flip) {
++                GstElement *orientationBin = gst_bin_new("video-orientation-bin");
++                g_object_set(G_OBJECT(flip), "video-direction", 8 /* GST_VIDEO_ORIENTATION_AUTO */, NULL);
++                gst_bin_add_many(GST_BIN(orientationBin), convert, flip, NULL);
++                gst_element_link(convert, flip);
++                GstPad *sinkPad = gst_element_get_static_pad(convert, "sink");
++                gst_element_add_pad(orientationBin, gst_ghost_pad_new("sink", sinkPad));
++                gst_object_unref(GST_OBJECT(sinkPad));
++                GstPad *srcPad = gst_element_get_static_pad(flip, "src");
++                gst_element_add_pad(orientationBin, gst_ghost_pad_new("src", srcPad));
++                gst_object_unref(GST_OBJECT(srcPad));
++                g_object_set(G_OBJECT(m_playbin), "video-filter", orientationBin, NULL);
++            } else {
++                if (convert)
++                    gst_object_unref(GST_OBJECT(convert));
++                if (flip)
++                    gst_object_unref(GST_OBJECT(flip));
++            }
++        }
++#endif
++
+         GstElement *audioSink = gst_element_factory_make("autoaudiosink", "audiosink");
+         if (audioSink) {
+             if (usePlaybinVolume()) {
+-- 
+2.56.0
+

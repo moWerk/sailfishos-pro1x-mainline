@@ -58,6 +58,9 @@ native-common's `…+v4l.20230905210651…` (segments compare numerically); inst
 - `nemo-qtmultimedia-plugins-gstvideotexturebackend` (rpm -e --nodeps): the hybris QML video
   node backend that requests `droideglsink`; without it Qt's own video renderer backs
   `VideoOutput`, which is what libcamerasrc needs. A packaged port drops it from the pattern.
+  The 5.2 upgrade reinstalled it (2026-10-27); it loads, finds no `droideglsink` and falls
+  back, so it is harmless, but rotation by the video's orientation tag then needs the
+  player-side filter of qtmultimedia patch 0015.
 - `qt5-feedback-haptics-ffmemless`: bypasses ngfd and eats memless slots; libngf-qt5-qtfeedback instead.
 - `ohm-configs-default` could not be removed (ohm requires "ohm-configs"); the template's
   `etc/ohm/*` files from droid-hal-configs are shipped on top.
