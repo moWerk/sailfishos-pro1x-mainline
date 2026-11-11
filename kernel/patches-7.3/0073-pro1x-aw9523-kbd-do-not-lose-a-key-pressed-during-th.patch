@@ -1,0 +1,72 @@
+From 05fb886aed0d3ea8826f0bc0657b21fedfd1e30f Mon Sep 17 00:00:00 2001
+From: Mathieu <mlaparie@users.noreply.github.com>
+Date: Mon, 9 Nov 2026 20:32:53 +0100
+Subject: [PATCH] pro1x-aw9523-kbd: do not lose a key pressed during the last
+ scan
+
+A key pressed after its column was scanned changed the rows before the
+read that clears INT, so when no other key was held the IRQ was unmasked
+with nothing left to announce it.  Check the rows in the idle configuration
+before unmasking.
+
+Poll every 5 ms instead of 15 while a key is held, as module parameter
+poll_ms: an IRQ is masked then, so a quick tap could fall between scans.
+
+Taken unchanged from kabouik's Guix port of the Pro1-X
+(github.com/mlaparie/fxtec-pro1x-guix, commit 9745bbd, released in his
+0.4.0); his pre-fix driver is identical to ours.
+---
+ drivers/input/keyboard/pro1x-aw9523-kbd.c | 18 +++++++++++++-----
+ 1 file changed, 13 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/input/keyboard/pro1x-aw9523-kbd.c b/drivers/input/keyboard/pro1x-aw9523-kbd.c
+index e47fd108f..1375b281f 100644
+--- a/drivers/input/keyboard/pro1x-aw9523-kbd.c
++++ b/drivers/input/keyboard/pro1x-aw9523-kbd.c
+@@ -55,9 +55,12 @@
+ #define AW_SOFT_RESET	0x7f
+ 
+ #define NUM_LINES	8
+-#define POLL_MS		15
+ #define SCAN_RETRIES	10
+ 
++static unsigned int poll_ms = 5;
++module_param(poll_ms, uint, 0644);
++MODULE_PARM_DESC(poll_ms, "Delay between scans while a key is held (ms)");
++
+ static unsigned int settle_us = 20;
+ module_param(settle_us, uint, 0644);
+ MODULE_PARM_DESC(settle_us, "Delay between driving a column and reading the rows (us)");
+@@ -233,7 +236,7 @@ static void pro1x_kbd_work(struct work_struct *work)
+ 	struct device *dev = &kb->client->dev;
+ 	u8 state[NUM_LINES];
+ 	u8 keymask = 0;
+-	int i, ret;
++	int i, ret, rows;
+ 
+ 	ret = kbd_scan(kb, state);
+ 	if (ret) {
+@@ -252,12 +255,17 @@ static void pro1x_kbd_work(struct work_struct *work)
+ 	/* Back to the idle configuration and clear the pending INT. */
+ 	if (kbd_idle_config(kb))
+ 		dev_err_ratelimited(dev, "failed to restore idle config\n");
+-	kbd_read(kb, AW_INPUT_P0);
++	rows = kbd_read(kb, AW_INPUT_P0);
+ 	kbd_read(kb, AW_INPUT_P1);
+ 
+-	if (keymask) {
++	/*
++	 * A key pressed after its column was scanned pulled a row low before
++	 * the read above cleared INT, so no interrupt will announce it.  With
++	 * every column driven low, any held key shows on the rows.
++	 */
++	if (keymask || (rows >= 0 && (u8)rows != 0xff)) {
+ 		/* Poll while a key is held, the IRQ stays masked. */
+-		schedule_delayed_work(&kb->work, msecs_to_jiffies(POLL_MS));
++		schedule_delayed_work(&kb->work, msecs_to_jiffies(poll_ms));
+ 		return;
+ 	}
+ 
+-- 
+2.56.0
+
