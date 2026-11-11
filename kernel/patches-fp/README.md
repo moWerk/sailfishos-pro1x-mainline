@@ -12,5 +12,5 @@ Applied on top of `patches-7.3/` (0001 to 0068) for the fingerprint kernels; w-7
 
 Kernels: kfp (2026-11-09, 0001 plus the test copy as a hand-loaded module; three hard
 hangs, root cause `reports/pro1x-fingerprint-hang-rootcause-2026-11-11.md` of the memeline
-session), kfp2 (2026-11-11, 0001 to 0004, built on the e15 as `out-7.3-kfp2`). Nothing of this
+session), kfp2 (2026-11-11, 0001 to 0004, built on the e15 as `out-7.3-kfp2`; on the phone since 00:34, set_active_group with five slots on file clean, enrolment and unlock from the stock UI). Nothing of this
 is sent to Wróbel or upstream before the author's read-back.

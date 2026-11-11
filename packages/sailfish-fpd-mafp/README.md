@@ -6,14 +6,24 @@ driven by the stock `mafp` trusted application (TZ name `fingerprint`), which th
 talks to through Bartosz Wróbel's out-of-tree qseecomtee driver and qsee-supplicant. No
 libhybris, no Android HAL.
 
-**State (2026-11-11): written, not yet run.** Everything the daemon does was done by hand on
-2026-11-09 with the test tool (`mafp-init`): application init, chip id 0x24, template store
-through the supplicant, enrolment of a finger (14 samples). Verify never matched then (six
-attempts, template id 0 back); the daemon sends what the Android library sends as far as it
-is mapped, and Identify is expected to report misses until that is understood. The three
-hard hangs of that day were two stacked kernel bugs, fixed in kernel kfp2
-(`reports/pro1x-fingerprint-hang-rootcause-2026-11-11.md` in the memeline session's reports);
-the daemon must not run on kernel kfp.
+**State (2026-11-11, kernel kfp2): working.** The daemon came up from boot with the supplicant
+and the loader, enumerated the templates, and the author enrolled a finger from the stock
+Settings page (15 touches, one rejected by the TA with its code -2988) and unlocked the phone
+with it on the lock screen after a sleep. Identify matched both the finger enrolled by hand on
+2026-11-09 and the one enrolled from Settings. Observed in the first tests: about one touch in
+three matched, the rest came back as no match with status 0 (placement, rhythm or the capture
+step; not understood yet). Monday's "verify never matched" was tests against empty slots and a
+lock screen Identify before any finger of the author was on file.
+
+Two integration lessons: the device lock clients hold their connection to the device lock
+daemon, so after installing `sailfish-devicelock-fpd` the Settings app and lipstick must be
+restarted (a reboot is simplest) before the Fingerprint section and the lock screen Identify
+appear; and the first boot asks for the lock code before the sensor is used, as on Jolla's
+devices.
+
+The three hard hangs of 2026-11-09 were two stacked kernel bugs, fixed in `kernel/patches-fp/`
+0002 and 0003 (root cause record in the memeline session's reports); the daemon must not run
+on kernel kfp.
 
 ## Layout
 
