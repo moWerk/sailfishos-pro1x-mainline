@@ -29,7 +29,7 @@ after that two fingers enrolled and both unlock. The daemon does not yet detect 
 and recover on its own: next change.
 
 The three hard hangs of 2026-11-09 were two stacked kernel bugs, fixed in `kernel/patches-fp/`
-0002 and 0003 (root cause record in the memeline session's reports); the daemon must not run
+0002 and 0003 (`notes/fingerprint.md`); the daemon must not run
 on kernel kfp.
 
 ## Layout
