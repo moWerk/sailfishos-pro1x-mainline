@@ -1,0 +1,57 @@
+From e514c6e92e1597da572796845ea5e0d51730174d Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Wed, 11 Nov 2026 17:58:09 +0100
+Subject: [PATCH] arm64: dts: qcom: sm6115-fxtec-pro1x: The jack detect
+ switches are normally open
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The board described both headphone jack detect switches as normally
+closed (qcom,hphl-jack-type-normally-closed and
+qcom,ground-jack-type-normally-closed). The stock BENGAL IDP overlay of
+this phone sets qcom,msm-mbhc-hphl-swh = <1> and gnd-swh = <1>, which
+is what the mainline MBHC uses when the two properties are absent
+(hphl_swh = gnd_swh = true). With them the plug logic was inverted:
+an empty jack counted as inserted, MBHC measured the open microphone
+line at boot (1787 mV against 1700 mV, "high impedance headphones",
+reported as line out) and every real plug was reported as a removal.
+
+Drop both properties. An earlier test that seemed to need them ran
+before the SoundWire wake worked, when interrupts got through only
+while a stream kept the bus awake.
+
+Tested on the device: the Pro1-X headset is reported as a headset
+(mic line about 1020 mV), both ALSA jack controls follow plug and
+unplug, and PulseAudio switches to the headphone profile by itself.
+
+Disclosure: LLMGD-2 · origin O1 (the model compared the stock overlay with the driver's switch handling and wrote the change; the author plugged the headset for every test)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=kernel; graded-by=claude-opus-5-5; retrieval=none
+---
+ arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts | 9 ++++-----
+ 1 file changed, 4 insertions(+), 5 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts b/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
+index ddace69db..1d1ba8e1b 100644
+--- a/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
++++ b/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
+@@ -415,12 +415,11 @@ wcd9370: audio-codec {
+ 		qcom,micbias4-microvolt = <1800000>;
+ 
+ 		/*
+-		 * Both jack detect switches are normally closed (stock BENGAL IDP overlay:
+-		 * qcom,msm-mbhc-hphl-swh = <1>, qcom,msm-mbhc-gnd-swh = <1>). Without this
+-		 * MBHC never saw a plug: no insert or remove interrupt, the jack stayed off.
++		 * The jack detect switches are normally open: the stock BENGAL IDP
++		 * overlay sets qcom,msm-mbhc-hphl-swh = <1> and gnd-swh = <1>, which is
++		 * the mainline default (hphl_swh = gnd_swh = true without the
++		 * *-normally-closed properties).
+ 		 */
+-		qcom,hphl-jack-type-normally-closed;
+-		qcom,ground-jack-type-normally-closed;
+ 		qcom,mbhc-buttons-vthreshold-microvolt = <75000 150000 237000 500000 500000 500000 500000 500000>;
+ 		qcom,mbhc-headset-vthreshold-microvolt = <1700000>;
+ 		qcom,mbhc-headphone-vthreshold-microvolt = <50000>;
+-- 
+2.56.0
+

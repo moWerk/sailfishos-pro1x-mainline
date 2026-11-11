@@ -1,0 +1,59 @@
+From dd72c1ce9d5b1feed00600fbffeb1c7b57440ee9 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Wed, 11 Nov 2026 17:39:15 +0100
+Subject: [PATCH] aw87339: let the OUT pin switch take the amplifier out of the
+ path
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The board describes "Spk0 OUT" and "Spk1 OUT" as pin switches so that
+the UCM headphone device can mute the speakers, which are fed by the
+codec's headphone stage. They had no effect: the amplifier was a SPK
+widget followed by an OUTPUT widget named OUT, and DAPM treats a SPK
+widget as an output endpoint of its own, so with the OUT pin disabled
+the path through "SPK PA" stayed complete and the amplifier powered up
+with every headphone stream. Music played on the headset and the
+speakers at once.
+
+Make the SPK widget the endpoint and name it OUT. The pin switch keeps
+its name ("Spk0 OUT Switch", the UCM profile is unchanged) and now
+disconnects the amplifier itself; the anti-pop ordering of the SPK
+widget (power up last, down first) stays.
+
+Disclosure: LLMGD-2 · origin O1 (the model traced the DAPM path and wrote the change; the author tested speaker and headset playback)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=kernel; graded-by=claude-opus-5-5; retrieval=none
+---
+ sound/soc/codecs/aw87339.c | 12 ++++++++----
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/sound/soc/codecs/aw87339.c b/sound/soc/codecs/aw87339.c
+index fb23e4c87..2a0b05cef 100644
+--- a/sound/soc/codecs/aw87339.c
++++ b/sound/soc/codecs/aw87339.c
+@@ -149,14 +149,18 @@ static const struct snd_soc_dapm_widget aw87339_dapm_widgets[] = {
+ 	 * Anti-pop: as a speaker widget the amplifier is powered up last and down first.
+ 	 * It switches on once the codec output has settled (POST_PMU) and off before the
+ 	 * codec powers down (PRE_PMD), so it never amplifies the codec's power transients.
++	 *
++	 * The speaker widget is the output endpoint itself and carries the name "OUT":
++	 * a pin switch on "OUT" ("Spk0 OUT Switch") then really takes the amplifier out
++	 * of the path. Behind a separate OUTPUT widget it did not, because DAPM counts a
++	 * SPK widget as an endpoint of its own, and the speakers kept playing on the
++	 * headphone path, which feeds them.
+ 	 */
+-	SND_SOC_DAPM_SPK("SPK PA", aw87339_event),
+-	SND_SOC_DAPM_OUTPUT("OUT"),
++	SND_SOC_DAPM_SPK("OUT", aw87339_event),
+ };
+ 
+ static const struct snd_soc_dapm_route aw87339_dapm_routes[] = {
+-	{ "SPK PA", NULL, "IN" },
+-	{ "OUT", NULL, "SPK PA" },
++	{ "OUT", NULL, "IN" },
+ };
+ 
+ static const struct snd_soc_component_driver aw87339_component = {
+-- 
+2.56.0
+

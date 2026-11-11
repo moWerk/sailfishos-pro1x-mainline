@@ -1,0 +1,11 @@
+[Unit]
+Description=Headphone jack: hand a playing stream over to the headphones on plug-in
+After=pre-user-session.target pulseaudio.service
+
+[Service]
+ExecStart=/usr/bin/droid/qx1050-jack-kick.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=post-user-session.target

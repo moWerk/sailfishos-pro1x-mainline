@@ -1,0 +1,151 @@
+From fcf8679e715cf61b7d6c2c21329f72dd0ab20272 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Wed, 11 Nov 2026 16:49:44 +0100
+Subject: [PATCH] soundwire: qcom: Arm the data line wake through a TCSR bit in
+ clock stop
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+On SM6115 the TX SoundWire controller has a wake interrupt (SPI 79), but
+a Slave that signals a wake on the data line while the bus is in clock
+stop never raises it. The downstream audio driver sets bit 0 of TCSR
+offset 0xa04c (its "chip wakeup register" for the TX SoundWire data
+pin) whenever the last SoundWire clock user goes away and clears it
+again before the bus runs. Mainline never sets it, so with nothing
+playing a WCD937x jack plug was not seen at all: the codec latched the
+event and it arrived only when a stream resumed the bus.
+
+Add an optional qcom,wake-syscon property (syscon phandle, offset,
+mask). The controller sets the bits after stopping the clock, before
+it enables the wake interrupt, and clears them on resume. Describe it
+in the binding and set it for the SM6115 TX controller.
+
+Tested on an SM6115 phone (F(x)tec Pro1-X) by setting the bit by hand
+through /dev/mem with the bus runtime-suspended: the wake interrupt
+fired for the first time (0 counts before), and every plug and unplug
+of a headphone jack was then reported at once. With the patch (kernel
+kjack1) and nothing playing, plugs and unplugs are reported and the wake
+interrupt counts; the bus suspends as before.
+
+Disclosure: LLMGD-2 · origin O1 (the model found the bit in the downstream device tree and audio driver and wrote the patch; the author plugged the jack for every test)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=kernel; graded-by=claude-opus-5-5; retrieval=none
+---
+ .../bindings/soundwire/qcom,soundwire.yaml    | 11 ++++++
+ arch/arm64/boot/dts/qcom/sm6115.dtsi          |  2 ++
+ drivers/soundwire/qcom.c                      | 36 +++++++++++++++++++
+ 3 files changed, 49 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/soundwire/qcom,soundwire.yaml b/Documentation/devicetree/bindings/soundwire/qcom,soundwire.yaml
+index 8e6973fa2..4d003f16b 100644
+--- a/Documentation/devicetree/bindings/soundwire/qcom,soundwire.yaml
++++ b/Documentation/devicetree/bindings/soundwire/qcom,soundwire.yaml
+@@ -72,6 +72,17 @@ properties:
+ 
+   wakeup-source: true
+ 
++  qcom,wake-syscon:
++    $ref: /schemas/types.yaml#/definitions/phandle-array
++    items:
++      - items:
++          - description: phandle to the syscon holding the wake enable
++          - description: offset of the register in the syscon
++          - description: mask of the bits that route the data line to the wake interrupt
++    description:
++      Register that has to be set while the bus is in clock stop for a Slave
++      wake on the data line to raise the wake interrupt (second interrupt).
++
+   qcom,din-ports:
+     $ref: /schemas/types.yaml#/definitions/uint32
+     description: count of data in ports
+diff --git a/arch/arm64/boot/dts/qcom/sm6115.dtsi b/arch/arm64/boot/dts/qcom/sm6115.dtsi
+index 445d7fae4..4797967e2 100644
+--- a/arch/arm64/boot/dts/qcom/sm6115.dtsi
++++ b/arch/arm64/boot/dts/qcom/sm6115.dtsi
+@@ -3113,6 +3113,8 @@ swr0: soundwire@a740000 {
+ 			interrupts = <GIC_SPI 296 IRQ_TYPE_LEVEL_HIGH>,
+ 				     <GIC_SPI 79 IRQ_TYPE_LEVEL_HIGH>;
+ 			clocks = <&txmacro>;
++			/* TCSR bit 0 at 0xa04c routes the TX data line to the wake irq */
++			qcom,wake-syscon = <&tcsr_regs 0xa04c 0x1>;
+ 			clock-names = "iface";
+ 
+ 			resets = <&lpasscc 0>;
+diff --git a/drivers/soundwire/qcom.c b/drivers/soundwire/qcom.c
+index 55678a30c..dc592a716 100644
+--- a/drivers/soundwire/qcom.c
++++ b/drivers/soundwire/qcom.c
+@@ -6,6 +6,7 @@
+ #include <linux/interrupt.h>
+ #include <linux/io.h>
+ #include <linux/kernel.h>
++#include <linux/mfd/syscon.h>
+ #include <linux/module.h>
+ #include <linux/debugfs.h>
+ #include <linux/of.h>
+@@ -203,6 +204,10 @@ struct qcom_swrm_ctrl {
+ 	int irq;
+ 	unsigned int version;
+ 	int wake_irq;
++	/* optional register that routes the data line to wake_irq in clock stop */
++	struct regmap *wake_syscon;
++	u32 wake_reg;
++	u32 wake_mask;
+ 	int num_din_ports;
+ 	int num_dout_ports;
+ 	int nports;
+@@ -1662,6 +1667,29 @@ static int qcom_swrm_probe(struct platform_device *pdev)
+ 			dev_err(dev, "Failed to request soundwire wake irq\n");
+ 			goto err_init;
+ 		}
++
++		/*
++		 * On some SoCs the data line reaches the wake interrupt only while
++		 * a bit in a TCSR register is set; without it a Slave that signals
++		 * a wake in clock stop (a WCD codec reporting a jack plug) is never
++		 * heard until something else resumes the bus.
++		 */
++		if (of_property_present(dev->of_node, "qcom,wake-syscon")) {
++			unsigned int args[2];
++			struct regmap *rm;
++
++			rm = syscon_regmap_lookup_by_phandle_args(dev->of_node,
++								  "qcom,wake-syscon",
++								  2, args);
++			if (IS_ERR(rm)) {
++				ret = PTR_ERR(rm);
++				dev_err(dev, "Failed to get wake syscon: %d\n", ret);
++				goto err_init;
++			}
++			ctrl->wake_syscon = rm;
++			ctrl->wake_reg = args[0];
++			ctrl->wake_mask = args[1];
++		}
+ 	}
+ 
+ 	ctrl->bus.controller_id = -1;
+@@ -1729,6 +1757,10 @@ static int __maybe_unused swrm_runtime_resume(struct device *dev)
+ 			disable_irq_nosync(ctrl->wake_irq);
+ 	}
+ 
++	if (ctrl->wake_syscon)
++		regmap_update_bits(ctrl->wake_syscon, ctrl->wake_reg,
++				   ctrl->wake_mask, 0);
++
+ 	clk_prepare_enable(ctrl->hclk);
+ 
+ 	if (ctrl->clock_stop_not_supported) {
+@@ -1817,6 +1849,10 @@ static int __maybe_unused swrm_runtime_suspend(struct device *dev)
+ 
+ 	usleep_range(300, 305);
+ 
++	if (ctrl->wake_syscon)
++		regmap_update_bits(ctrl->wake_syscon, ctrl->wake_reg,
++				   ctrl->wake_mask, ctrl->wake_mask);
++
+ 	if (ctrl->wake_irq > 0) {
+ 		if (irqd_irq_disabled(irq_get_irq_data(ctrl->wake_irq)))
+ 			enable_irq(ctrl->wake_irq);
+-- 
+2.56.0
+
