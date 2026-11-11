@@ -1,0 +1,11 @@
+[Unit]
+Description=Camera button: hold to open the camera while unlocked
+After=pre-user-session.target
+
+[Service]
+ExecStart=/usr/bin/droid/qx1050-camera-key.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=post-user-session.target
