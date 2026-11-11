@@ -1,0 +1,11 @@
+[Unit]
+Description=Keyboard slide: lock the display to landscape while the keyboard is open
+After=pre-user-session.target
+
+[Service]
+ExecStart=/usr/bin/droid/qx1050-slide-orientation.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=post-user-session.target
