@@ -1,0 +1,12 @@
+[Unit]
+Description=Keep journals of boots that ended uncleanly (crashes) out of the vacuum's reach
+After=systemd-journal-flush.service time-sync.target
+Wants=time-sync.target
+RequiresMountsFor=/var/log
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/droid/qx1050-journal-keep.sh
+
+[Install]
+WantedBy=multi-user.target
