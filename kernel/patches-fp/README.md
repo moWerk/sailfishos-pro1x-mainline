@@ -14,3 +14,8 @@ Kernels: kfp (2026-11-09, 0001 plus the test copy as a hand-loaded module; three
 hangs, root cause `reports/pro1x-fingerprint-hang-rootcause-2026-11-11.md` of the memeline
 session), kfp2 (2026-11-11, 0001 to 0004, built on the e15 as `out-7.3-kfp2`; on the phone since 00:34, set_active_group with five slots on file clean, enrolment and unlock from the stock UI). Nothing of this
 is sent to Wróbel or upstream before the author's read-back.
+
+**Rollback warning (2026-11-11):** the phone's `/root/boot_a.pre-k-kfp2.img` is kernel kfp, without
+0002 and 0003. With `sailfish-fpd-mafp` enabled and five slots on file, kfp hangs hard on the
+daemon's first set_active_group, on every boot. Roll back to `/root/boot_a.pre-k-kfp.img` (kbd,
+no TEE driver: the daemon then fails cleanly) or `systemctl disable sailfish-fpd-mafp` first.
