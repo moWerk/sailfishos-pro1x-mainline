@@ -24,8 +24,8 @@ bounded by that at under three minutes with the call lock held.
 The answer to TZ is sent before giving up, as before, so the application
 is never left waiting.
 
-Disclosure: LLMGD-2 · origin O1 (the model derived the bound from the template sizes and the FS listener protocol, wrote the change; built, not yet on the device)
-LLMGD: v0.3; assurance=A2; flags=U; origin=O1; origin_headline=O1; scope=kernel; graded-by=claude-fable-5-1; retrieval=none
+Disclosure: LLMGD-2 · origin O1 (the model wrote it; the author tested the behaviour on the device and can verify that, not the code)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=kernel; graded-by=claude-fable-5-1; retrieval=none
 ---
  drivers/firmware/qcom/qcom_scm.c | 48 +++++++++++++++++---------------
  1 file changed, 25 insertions(+), 23 deletions(-)
