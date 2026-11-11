@@ -21,6 +21,13 @@ restarted (a reboot is simplest) before the Fingerprint section and the lock scr
 appear; and the first boot asks for the lock code before the sensor is used, as on Jolla's
 devices.
 
+Known problem (2026-11-11, once): after a Clear of all templates and an enrolment, the TA
+instance died; from the next command on TrustZone refused everything with -22 (daemon log
+`UNABLE_TO_PROCESS`, Settings "could not be captured"). Recovery: `systemctl restart
+qsee-app-loader@mafp.service` (reloads the TA) and `systemctl restart sailfish-fpd-mafp.service`;
+after that two fingers enrolled and both unlock. The daemon does not yet detect a dead instance
+and recover on its own: next change.
+
 The three hard hangs of 2026-11-09 were two stacked kernel bugs, fixed in `kernel/patches-fp/`
 0002 and 0003 (root cause record in the memeline session's reports); the daemon must not run
 on kernel kfp.
