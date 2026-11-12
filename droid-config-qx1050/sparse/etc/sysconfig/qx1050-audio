@@ -1,0 +1,7 @@
+# Knobs for qx1050-audio-reprobe.sh (the boot-time sound card re-registration).
+# Disabled since 2026-11-12: on kernel kd1 the speaker played on three boots in a row without it
+# (mic loopback oracle PLAYS, ratio about 50; heard by the author). Remove REPROBE_DISABLE to bring
+# the workaround back if a first card instance is silent again.
+REPROBE_AFTER=0
+REPROBE_PRIME=1
+REPROBE_DISABLE=1
