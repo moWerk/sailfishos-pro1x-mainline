@@ -59,6 +59,8 @@ public:
     bool start(const std::string &groupPath, uint32_t gid);
     void stop();
     bool isStarted() const { return m_started; }
+    /* Consecutive commands the TEE refused; a dead TA instance refuses every one. */
+    int transportFailures() const { return m_transportFailures; }
     int chipId() const { return m_chipId; }
     const std::string &error() const { return m_error; }
 
@@ -85,6 +87,7 @@ private:
     uint32_t m_session = 0;
     bool m_haveSession = false;
     bool m_started = false;
+    int m_transportFailures = 0;
     int m_chipId = 0;
     std::string m_error;
 };

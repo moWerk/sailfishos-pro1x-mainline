@@ -1,6 +1,6 @@
 Name:       sailfish-fpd-mafp
 Summary:    Fingerprint daemon for the F(x)tec Pro1X on a mainline kernel
-Version:    0.1.0
+Version:    0.1.1
 Release:    1
 License:    GPL-3.0-or-later
 URL:        https://github.com/moWerk/sailfishos-pro1x-mainline

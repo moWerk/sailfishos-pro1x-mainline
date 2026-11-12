@@ -53,6 +53,9 @@ public:
     void enumerate();
     QList<uint32_t> fingerprints() const;
 
+private slots:
+    void recoverIfDead();
+
 signals:
     void failed(const QString &message);
     void succeeded(uint32_t fingerId);       /* after an enrolment */

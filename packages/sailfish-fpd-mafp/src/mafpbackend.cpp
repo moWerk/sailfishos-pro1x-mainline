@@ -4,6 +4,7 @@
 #include <QDebug>
 
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 
@@ -20,6 +21,8 @@ const unsigned int POWER_LINE = 108;
 const double ENROLL_TOUCH_TIMEOUT = 90;     /* s without a finger before the enrolment fails */
 const double LIFT_TIMEOUT = 5;              /* s to wait for the finger to leave */
 const int POLL_MS = 30;                     /* detect_touch poll, as the Android HAL's enroll loop */
+/* After this many TEE refusals in a row the TA instance is taken as dead. */
+const int DEAD_AFTER_FAILURES = 3;
 
 QList<uint32_t> toList(const std::vector<uint32_t> &v)
 {
@@ -85,6 +88,27 @@ bool MafpBackend::begin(const char *what)
 void MafpBackend::finish()
 {
     m_busy = false;
+    if (m_ta.transportFailures() >= DEAD_AFTER_FAILURES)
+        QMetaObject::invokeMethod(this, "recoverIfDead", Qt::QueuedConnection);
+}
+
+/*
+ * A TA instance can die (seen once after a clear and an enrolment): the TEE then
+ * refuses every command. Reloading the TA through qsee-app-loader@mafp brings it
+ * back; this unit Requires= the loader, so systemd restarts the daemon with it
+ * and the new instance gets the full start sequence. Without this, the author
+ * had to restart both services by hand.
+ */
+void MafpBackend::recoverIfDead()
+{
+    if (m_busy || m_ta.transportFailures() < DEAD_AFTER_FAILURES)
+        return;
+    qWarning() << "mafp: the TA refused" << m_ta.transportFailures()
+               << "commands in a row, reloading it:" << lastError();
+    m_ta.stop();
+    int rc = system("systemctl --no-block restart qsee-app-loader@mafp.service");
+    if (rc != 0)
+        qWarning() << "mafp: reload request failed, rc" << rc;
 }
 
 bool MafpBackend::sleepStep()

@@ -108,9 +108,11 @@ const int32_t *MafpTa::command(uint32_t cmd, const void *payload, size_t plen, s
     if (ret) {
         if (ret > 0)
             errno = 0;
+        m_transportFailures++;
         fail("mafp command " + hex(cmd) + " failed, ret " + std::to_string(ret));
         return nullptr;
     }
+    m_transportFailures = 0;
     return reinterpret_cast<const int32_t *>(m_req.data() + 8);
 }
 
@@ -188,6 +190,7 @@ void MafpTa::stop()
         m_tee.closeSession(m_session);
     m_haveSession = false;
     m_started = false;
+    m_transportFailures = 0;
     m_tee.close();
 }
 
