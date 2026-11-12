@@ -1,5 +1,5 @@
 [Unit]
-Description=Headphone jack: hand a playing stream over to the headphones on plug-in
+Description=Headphone jack: hand playback to the headphones on plug-in, pause it on unplug
 After=pre-user-session.target pulseaudio.service
 
 [Service]
