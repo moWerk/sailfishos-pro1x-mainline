@@ -1,0 +1,326 @@
+From 347b76b45c56cd88ffe0e994f01f9334334c6f42 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Fri, 13 Nov 2026 00:35:15 +0100
+Subject: [PATCH] qmimodem: gprs-context: use the modem's profile for the APN,
+ fix IPv6
+
+Three changes to starting a context on QMI modems:
+
+- qmi_activate_primary passed the PDP type (IPv4 0, IPv6 2, IPv4v6 3) to
+  start_network, which expects the IP support type (IPv4 0, IPv6 1,
+  IPv4v6 2). An IPv6 context therefore started both families and an
+  IPv4v6 context failed at once with -EINVAL. Map the protocol to the
+  IP support type.
+
+- Before START NETWORK, look up the modem's stored 3GPP profiles and,
+  when one has the context's APN, pass its index (TLV 0x31) and leave
+  the authentication to the profile unless credentials are set. The
+  IMS PDN that a modem's IMS stack requests is granted only with its
+  profile index: with the APN alone the Pro1-X (SM6115) modem answers
+  CallFailed, call manager reason 231. Contexts whose APN matches no
+  stored profile are started as before.
+
+- Log the call end reason and the verbose call end reason when START
+  NETWORK fails; the core only reports "Unknown error type".
+---
+ drivers/qmimodem/gprs-context.c | 190 ++++++++++++++++++++++++++++++--
+ drivers/qmimodem/wds.h          |   1 +
+ 2 files changed, 184 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/qmimodem/gprs-context.c b/drivers/qmimodem/gprs-context.c
+index abf6a315..608d4674 100644
+--- a/drivers/qmimodem/gprs-context.c
++++ b/drivers/qmimodem/gprs-context.c
+@@ -10,6 +10,7 @@
+ #endif
+ 
+ #include <string.h>
++#include <strings.h>
+ #include <arpa/inet.h>
+ 
+ #include <ofono/log.h>
+@@ -29,6 +30,7 @@ struct gprs_context_data {
+ 	uint32_t start_network_ipv4_id;
+ 	uint32_t start_network_ipv6_id;
+ 	uint8_t mux_id;
++	uint8_t profile_index;		/* 3GPP profile matching the APN, 0: none */
+ };
+ 
+ static void check_all_deactivated(struct ofono_gprs_context *gc)
+@@ -274,6 +276,8 @@ static void start_network_common_cb(int family, struct qmi_result *result,
+ 					uint32_t *family_start_id)
+ {
+ 	static const uint8_t RESULT_PACKET_HANDLE = 0x01;
++	static const uint8_t RESULT_CALL_END_REASON = 0x10;
++	static const uint8_t RESULT_VERBOSE_CALL_END_REASON = 0x11;
+ 	struct ofono_gprs_context *gc = cbd->user;
+ 	struct gprs_context_data *data = ofono_gprs_context_get_data(gc);
+ 	uint16_t error;
+@@ -285,8 +289,25 @@ static void start_network_common_cb(int family, struct qmi_result *result,
+ 
+ 	DBG("family: %d, error: %u", family, error);
+ 
+-	if (error)
++	if (error) {
++		const uint8_t *verbose;
++		uint16_t reason, len;
++
++		if (qmi_result_get_uint16(result, RESULT_CALL_END_REASON,
++						&reason))
++			ofono_warn("Start network (IPv%d) failed: QMI error %u,"
++					" call end reason %u", family, error,
++					reason);
++
++		verbose = qmi_result_get(result, RESULT_VERBOSE_CALL_END_REASON,
++						&len);
++		if (verbose && len == 4)
++			ofono_warn("Start network (IPv%d): verbose call end"
++					" reason type %u reason %u", family,
++					l_get_le16(verbose),
++					l_get_le16(verbose + 2));
+ 		goto error;
++	}
+ 
+ 	if (!qmi_result_get_uint32(result, RESULT_PACKET_HANDLE, packet_handle))
+ 		goto error;
+@@ -328,7 +349,8 @@ static void start_network_ipv6_cb(struct qmi_result *result, void *user_data)
+ }
+ 
+ static struct qmi_param *param_from_context(uint8_t ip_family,
+-				const struct ofono_gprs_primary_context *ctx)
++				const struct ofono_gprs_primary_context *ctx,
++				uint8_t profile_index)
+ {
+ 	struct qmi_param *param = qmi_param_new();
+ 	uint8_t auth;
+@@ -338,12 +360,22 @@ static struct qmi_param *param_from_context(uint8_t ip_family,
+ 	if (!ctx)
+ 		goto done;
+ 
++	/*
++	 * A profile stored in the modem for this APN carries what the network
++	 * expects for it (an IMS APN is granted only with its profile index).
++	 * Its authentication applies unless credentials are set.
++	 */
++	if (profile_index)
++		qmi_param_append_uint8(param, QMI_WDS_PARAM_PROFILE_INDEX_3GPP,
++					profile_index);
++
+ 	qmi_param_append(param, QMI_WDS_PARAM_APN,
+ 					strlen(ctx->apn), ctx->apn);
+ 
+ 	auth = qmi_wds_auth_from_ofono(ctx->auth_method);
+-	qmi_param_append_uint8(param, QMI_WDS_PARAM_AUTHENTICATION_PREFERENCE,
+-					auth);
++	if (!profile_index || ctx->username[0] != '\0')
++		qmi_param_append_uint8(param,
++				QMI_WDS_PARAM_AUTHENTICATION_PREFERENCE, auth);
+ 
+ 	if (auth && ctx->username[0] != '\0')
+ 		qmi_param_append(param, QMI_WDS_PARAM_USERNAME,
+@@ -368,7 +400,8 @@ static int start_network(uint8_t iptype, struct gprs_context_data *data,
+ 
+ 	if (iptype == QMI_WDS_IP_SUPPORT_IPV4 ||
+ 			iptype == QMI_WDS_IP_SUPPORT_IPV4V6) {
+-		param = param_from_context(QMI_WDS_IP_FAMILY_IPV4, ctx);
++		param = param_from_context(QMI_WDS_IP_FAMILY_IPV4, ctx,
++							data->profile_index);
+ 
+ 		data->start_network_ipv4_id =
+ 			qmi_service_send(data->ipv4, QMI_WDS_START_NETWORK,
+@@ -383,7 +416,8 @@ static int start_network(uint8_t iptype, struct gprs_context_data *data,
+ 
+ 	if (iptype == QMI_WDS_IP_SUPPORT_IPV6 ||
+ 			iptype == QMI_WDS_IP_SUPPORT_IPV4V6) {
+-		param = param_from_context(QMI_WDS_IP_FAMILY_IPV6, ctx);
++		param = param_from_context(QMI_WDS_IP_FAMILY_IPV6, ctx,
++							data->profile_index);
+ 
+ 		data->start_network_ipv6_id =
+ 			qmi_service_send(data->ipv6, QMI_WDS_START_NETWORK,
+@@ -461,12 +495,138 @@ static void qmi_gprs_read_settings(struct ofono_gprs_context* gc,
+ 	l_free(cbd);
+ }
+ 
++/*
++ * The start request takes the IP support type, not the PDP type: they differ
++ * for IPv6 (PDP 2 = support IPv4v6) and IPv4v6 (PDP 3, no support value).
++ */
++static int ip_support_from_ofono(enum ofono_gprs_proto proto)
++{
++	switch (proto) {
++	case OFONO_GPRS_PROTO_IP:
++		return QMI_WDS_IP_SUPPORT_IPV4;
++	case OFONO_GPRS_PROTO_IPV6:
++		return QMI_WDS_IP_SUPPORT_IPV6;
++	case OFONO_GPRS_PROTO_IPV4V6:
++		return QMI_WDS_IP_SUPPORT_IPV4V6;
++	}
++
++	return -EINVAL;
++}
++
++/* Find the modem's stored 3GPP profile for the APN before starting. */
++struct profile_lookup {
++	struct ofono_gprs_context *gc;
++	struct cb_data *cbd;
++	struct ofono_gprs_primary_context ctx;
++	int ip_type;
++	uint8_t index[32];
++	uint8_t count;
++	uint8_t pos;
++};
++
++static void profile_lookup_start(struct profile_lookup *pl, uint8_t index)
++{
++	struct gprs_context_data *data = ofono_gprs_context_get_data(pl->gc);
++	struct cb_data *cbd = pl->cbd;
++	ofono_gprs_context_cb_t cb = cbd->cb;
++	void *user_data = cbd->data;
++	int r;
++
++	DBG("APN %s: modem profile %u", pl->ctx.apn, index);
++
++	data->profile_index = index;
++	r = start_network(pl->ip_type, data, &pl->ctx, cbd);
++	data->profile_index = 0;
++	pl->cbd = NULL;
++
++	if (r) {
++		data->active_context = 0;
++		CALLBACK_WITH_FAILURE(cb, user_data);
++	}
++
++	cb_data_unref(cbd);
++	l_free(pl);
++}
++
++static void profile_settings_cb(struct qmi_result *result, void *user_data);
++
++static void profile_lookup_next(struct profile_lookup *pl)
++{
++	struct gprs_context_data *data = ofono_gprs_context_get_data(pl->gc);
++	struct qmi_param *param;
++	uint8_t id[2];
++
++	if (pl->pos >= pl->count) {
++		profile_lookup_start(pl, 0);
++		return;
++	}
++
++	id[0] = 0;	/* 3GPP */
++	id[1] = pl->index[pl->pos];
++	param = qmi_param_new();
++	qmi_param_append(param, 0x01, sizeof(id), id);
++
++	if (qmi_service_send(data->ipv4, QMI_WDS_GET_PROFILE_SETTINGS, param,
++				profile_settings_cb, pl, NULL) > 0)
++		return;
++
++	qmi_param_free(param);
++	profile_lookup_start(pl, 0);
++}
++
++static void profile_settings_cb(struct qmi_result *result, void *user_data)
++{
++	static const uint8_t RESULT_APN = 0x14;
++	struct profile_lookup *pl = user_data;
++	char *apn;
++
++	if (!qmi_result_set_error(result, NULL)) {
++		apn = qmi_result_get_string(result, RESULT_APN);
++		if (apn && !strcasecmp(apn, pl->ctx.apn)) {
++			l_free(apn);
++			profile_lookup_start(pl, pl->index[pl->pos]);
++			return;
++		}
++		l_free(apn);
++	}
++
++	pl->pos++;
++	profile_lookup_next(pl);
++}
++
++static void profile_list_cb(struct qmi_result *result, void *user_data)
++{
++	static const uint8_t RESULT_PROFILE_LIST = 0x01;
++	struct profile_lookup *pl = user_data;
++	const uint8_t *p;
++	uint16_t len, off = 1;
++	uint8_t i, n;
++
++	p = qmi_result_get(result, RESULT_PROFILE_LIST, &len);
++	if (qmi_result_set_error(result, NULL) || !p || len < 1) {
++		profile_lookup_start(pl, 0);
++		return;
++	}
++
++	/* [count] then per profile [type][index][name length][name] */
++	n = p[0];
++	for (i = 0; i < n && off + 3 <= len; i++) {
++		if (p[off] == 0 && pl->count < L_ARRAY_SIZE(pl->index))
++			pl->index[pl->count++] = p[off + 1];
++		off += 3 + p[off + 2];
++	}
++
++	profile_lookup_next(pl);
++}
++
+ static void qmi_activate_primary(struct ofono_gprs_context *gc,
+ 				const struct ofono_gprs_primary_context *ctx,
+ 				ofono_gprs_context_cb_t cb, void *user_data)
+ {
+ 	struct gprs_context_data *data = ofono_gprs_context_get_data(gc);
+ 	enum ofono_gprs_proto proto = ctx->proto;
++	struct profile_lookup *pl;
++	struct qmi_param *param;
+ 	struct cb_data *cbd;
+ 	int ip_type;
+ 	int r;
+@@ -477,7 +637,7 @@ static void qmi_activate_primary(struct ofono_gprs_context *gc,
+ 					OFONO_GPRS_PROTO_IPV4V6))
+ 		goto error;
+ 
+-	ip_type = qmi_wds_pdp_type_from_ofono(ctx->proto);
++	ip_type = ip_support_from_ofono(ctx->proto);
+ 	if (ip_type < 0)
+ 		goto error;
+ 
+@@ -488,6 +648,22 @@ static void qmi_activate_primary(struct ofono_gprs_context *gc,
+ 	cbd = cb_data_new(cb, user_data);
+ 	cbd->user = gc;
+ 
++	if (ctx->apn[0] != '\0') {
++		pl = l_new(struct profile_lookup, 1);
++		pl->gc = gc;
++		pl->cbd = cbd;
++		pl->ctx = *ctx;
++		pl->ip_type = ip_type;
++
++		param = qmi_param_new_uint8(0x10, 0);	/* 3GPP profiles */
++		if (qmi_service_send(data->ipv4, QMI_WDS_GET_PROFILE_LIST,
++					param, profile_list_cb, pl, NULL) > 0)
++			return;
++
++		qmi_param_free(param);
++		l_free(pl);
++	}
++
+ 	r = start_network(ip_type, data, ctx, cbd);
+ 	cb_data_unref(cbd);
+ 
+diff --git a/drivers/qmimodem/wds.h b/drivers/qmimodem/wds.h
+index 64a18aa6..e726a9aa 100644
+--- a/drivers/qmimodem/wds.h
++++ b/drivers/qmimodem/wds.h
+@@ -12,6 +12,7 @@
+ #define QMI_WDS_PARAM_USERNAME			0x17	/* string */
+ #define QMI_WDS_PARAM_PASSWORD			0x18	/* string */
+ #define QMI_WDS_PARAM_AUTHENTICATION_PREFERENCE	0x16	/* uint8 */
++#define QMI_WDS_PARAM_PROFILE_INDEX_3GPP		0x31	/* uint8 */
+ 
+ enum qmi_wds_authentication {
+ 	QMI_WDS_AUTHENTICATION_PAP	= 0x1,
+-- 
+2.56.0
+

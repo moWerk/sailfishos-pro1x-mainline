@@ -1,0 +1,17 @@
+[Unit]
+Description=IMS data for VoLTE: brings up the IMS connection the modem asks for (prototype)
+# The modem runs the IMS stack; it asks the host for the IMS PDN over QMI service 770 and only
+# with the voice domain at ps-preferred. The connection is an oFono "ims" context (oFono patch
+# 0022 adds the modem's profile index). Not enabled by default: notes/volte.md.
+After=ofono.service qx1050-modem-prep.service
+Wants=ofono.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/droid/qx1050-imsd.py
+ExecStopPost=/usr/bin/droid/qx1050-voice-domain.py cs-preferred
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -2,8 +2,11 @@
 
 State: **incoming calls over VoLTE worked** in a manual test on Vodafone DE (LTE). Two calls
 rang at once, the status bar kept 4G through the calls (before this, every incoming call moved
-the phone to 2G), audio both ways (author). Nothing is installed or automatic yet: the
-stand-in runs by hand. Outgoing calls, reboot, suspend and SMS over IMS are untested.
+the phone to 2G), audio both ways (author). Since 2026-11-13 the plumbing is in place:
+oFono patch 0022 and the daemon `qx1050-imsd` (unit shipped, **not enabled**:
+`systemctl enable --now qx1050-imsd`). Verified: the modem asks, oFono's `ims` context comes up,
+the address is reported. Calls through the daemon, outgoing calls, reboot, suspend and SMS over
+IMS are untested.
 
 ## How VoLTE works here
 
@@ -50,18 +53,32 @@ phone under Guix. SailfishOS uses oFono, which cannot run beside ModemManager, s
   open: if its output pipe breaks, the cleanup can stop before cs-preferred is restored
   (check with `qmicli -d qrtr://0 --nas-get-system-selection-preference`).
 
-## To make it real
+## The plumbing (2026-11-13)
 
-1. oFono: pass the 3GPP profile index for an `ims` context in START NETWORK (a small patch to
-   `drivers/qmimodem/gprs-context.c`), and read the call end reason into the error.
-2. An IMS data daemon: 81voltd's QRTR side with an oFono backend instead of ModemManager
-   (an `ims` context per request), or a small daemon of our own; systemd unit after ofono.
-3. Voice domain: ps-preferred only while that daemon runs; cs-preferred back on stop.
-4. kabouik's watchdog: after a call that fell back to 2G/3G the modem may close the IMS PDN
-   and not ask again on LTE; restart the request when on LTE without it (back off for
-   networks without VoLTE).
-5. Tests: outgoing calls (kabouik's fell back to 3G after 22-26 s), after reboot, after
-   suspend, airplane mode, SMS while IMS is up, emergency calls stay CS.
+- **oFono patch 0022** (`patches/ofono/`): the QMI driver passes the modem's stored profile
+  index for the context's APN, fixes the IPv6/IPv4v6 type mix-up of `qmi_activate_primary`
+  (an upstream bug, also why a dual-stack internet context failed), logs call end reasons.
+- **`qx1050-imsd`** (`/usr/bin/droid/qx1050-imsd.py`, `qx1050-imsd.service`): serves QMI 770;
+  on the modem's request finds or creates the oFono context of type `ims`, sets APN and
+  protocol as asked, activates it, reports the address; deactivates on the modem's stop; sets
+  ps-preferred while running and cs-preferred on stop (also `ExecStopPost`). Watchdog after
+  kabouik's: on LTE without an active `ims` context for 30 s it publishes the service again so
+  the modem asks again, backing off 90 s doubling to 30 min. Prototype in Python with
+  dbus-send (no Python D-Bus bindings on the image); a C daemon (81voltd with an oFono backend)
+  is the clean form.
+- **`qx1050-modem-prep.sh`** sets ps-preferred instead of cs-preferred after a modem restart
+  while `qx1050-imsd` is active.
+- The `ims` context lives on its own rmnet link (rmnet_data1 in the test); the IPv6 default
+  route stays where it was, connman does not use the context.
+
+## Still to do
+
+1. Tests: incoming and outgoing calls with the daemon (kabouik's outgoing fell back to 3G after
+   22-26 s), after reboot with the unit enabled, after suspend, airplane mode, mobile data off,
+   SMS while IMS is up, emergency calls stay CS. The QMI call mode (`lte`) per call.
+2. A C daemon instead of the Python prototype; a qmimodem `ims` atom for a registration
+   indicator later (the IMSA service answers InvalidOperation even with VoLTE up).
+3. Upstream: the 0022 IPv6 fix to oFono.
 
 Seen on the way: answering a call logged "Unbalanced enable for IRQ 200" from
 `wcd937x_codec_enable_ear_pa` (kernel warning, no effect noticed); for the kernel list.

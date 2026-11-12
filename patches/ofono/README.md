@@ -63,3 +63,22 @@ registered clients. Incoming calls reached the modem (CSFB to 2G, a registered r
 SETUP/INCOMING/END) but never ofono. With the registration (TLV 0x13 call notification events)
 calls ring awake and from suspend. Built as ofono 2.12.0+git4-2 from src/ofono-212 (patch applied
 in the tree, Release 2).
+
+## 0022: modem profile for the APN, IPv6 fix, call end reasons (2026-11-13)
+
+`0022-qmimodem-gprs-context-modem-profile-for-the-APN-fix-IPv6.patch` on top of 0021 (spec
+Version 2.12.0+git5, Release 1, Patch20 = 0021, Patch21 = 0022; built in the 5.1.0.11 target).
+
+- **IPv6 fix (upstream bug):** `qmi_activate_primary` passed the PDP type (IPv4 0, IPv6 2,
+  IPv4v6 3) to `start_network`, which takes the IP support type (IPv4 0, IPv6 1, IPv4v6 2). An
+  `ipv6` context started both families; an `dual` context failed at once ("Operation failed",
+  the 2026-11-12 IPv6 test). Worth sending upstream.
+- **Modem profile:** before START NETWORK the driver lists the modem's 3GPP profiles and, when
+  one has the context's APN, sends its index (TLV 0x31) and leaves the authentication to the
+  profile unless credentials are set. The IMS PDN is granted only with it (without: CallFailed,
+  call manager reason 231). Contexts whose APN matches no stored profile start as before.
+- **Call end reasons** are logged when START NETWORK fails.
+
+Device result (2.12.0+git5-1, Vodafone DE): mobile data back at once after the restart; an
+`ims` context (APN ims, ipv6) activates with an address on rmnet_data1, the internet context
+stays up; `qx1050-imsd` brings it up on the modem's request (notes/volte.md).

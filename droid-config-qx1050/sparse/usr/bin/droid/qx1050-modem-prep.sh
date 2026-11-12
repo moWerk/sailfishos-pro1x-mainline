@@ -57,7 +57,10 @@ prep() {
       || ip link add link rmnet_ipa0 name rmnet_data$n type rmnet mux_id $((n + 1))
   done
   log "rmnet links ready"
-  /usr/bin/droid/qx1050-voice-domain.py cs-preferred 2>&1 | sed 's/^/qx1050-modem-prep: /'
+  # cs-preferred keeps incoming calls ringing by CS fallback. With the IMS data daemon running
+  # (VoLTE, qx1050-imsd) the modem must be at ps-preferred to ask for IMS.
+  vd=cs-preferred; systemctl is-active --quiet qx1050-imsd.service && vd=ps-preferred
+  /usr/bin/droid/qx1050-voice-domain.py $vd 2>&1 | sed 's/^/qx1050-modem-prep: /'
   qmicli -d qrtr://0 --loc-set-engine-lock=none >/dev/null 2>&1 \
     && log "GNSS engine unlocked" || log "GNSS engine unlock failed"
   p=/sys/module/qrtr/parameters/wake_ports
