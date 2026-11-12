@@ -199,6 +199,8 @@ private:
 
     QBasicTimer m_idleTimer;
     QBasicTimer m_fixLostTimer;
+    QBasicTimer m_keepAliveTimer;
+    void cpuKeepAlive(bool on);
 
     Status m_status;
 

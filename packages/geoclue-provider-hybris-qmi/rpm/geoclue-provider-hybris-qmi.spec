@@ -1,6 +1,6 @@
 Name: geoclue-provider-hybris-qmi
 Version: 0.2.24
-Release: 2
+Release: 3
 Provides: geoclue-provider-hybris = %{version}-%{release}
 Conflicts: geoclue-provider-hybris-hal
 Conflicts: geoclue-provider-hybris-binder

@@ -266,6 +266,8 @@ HybrisProvider::HybrisProvider(QObject *parent)
 
 HybrisProvider::~HybrisProvider()
 {
+    cpuKeepAlive(false);
+
     if (m_backend) {
         m_backend->gnssCleanup();
         delete m_backend;
@@ -490,6 +492,8 @@ void HybrisProvider::timerEvent(QTimerEvent *event)
         setStatus(StatusAcquiring);
     } else if (event->timerId() == m_ntpRetryTimer.timerId()) {
         sendNtpRequest();
+    } else if (event->timerId() == m_keepAliveTimer.timerId()) {
+        cpuKeepAlive(true);
     } else {
         QObject::timerEvent(event);
     }
@@ -1054,6 +1058,7 @@ void HybrisProvider::startPositioningIfNeeded()
     }
 
     m_gpsStarted = true;
+    cpuKeepAlive(true);
 
     if (m_networkManager->globalState() == NetworkManager::OnlineState) {
         if (m_useForcedXtraInject) {
@@ -1091,8 +1096,35 @@ void HybrisProvider::stopPositioningIfNeeded()
         m_gpsStarted = false;
         setStatus(StatusUnavailable);
     }
+    cpuKeepAlive(false);
     
     m_fixLostTimer.stop();
+}
+
+/*
+ * Keep the CPU awake while a positioning session runs. The modem's location
+ * indications do not wake the system on this port, so with the display off the
+ * system slept between them and apps got a position about once a minute while
+ * the modem fixed at 1 Hz. mce's CPU keepalive is the Sailfish way to hold a
+ * wakelock from a user process; it lapses unless renewed within mce's period
+ * (60 s), so it is renewed every 30 s and cannot outlive a crashed provider.
+ */
+void HybrisProvider::cpuKeepAlive(bool on)
+{
+    const QString method = on ? QStringLiteral("req_cpu_keepalive_start")
+                              : QStringLiteral("req_cpu_keepalive_stop");
+    if (on)
+        m_keepAliveTimer.start(30000, this);
+    else if (m_keepAliveTimer.isActive())
+        m_keepAliveTimer.stop();
+    else
+        return;
+    QDBusMessage msg = QDBusMessage::createMethodCall(QStringLiteral("com.nokia.mce"),
+                                                      QStringLiteral("/com/nokia/mce/request"),
+                                                      QStringLiteral("com.nokia.mce.request"),
+                                                      method);
+    msg << QStringLiteral("geoclue-hybris-qmi");
+    QDBusConnection::systemBus().call(msg, QDBus::NoBlock);
 }
 
 void HybrisProvider::setStatus(HybrisProvider::Status status)
