@@ -1,0 +1,97 @@
+From 11aa57b88ba5ce4397217be259ee8c9e00084c94 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Thu, 12 Nov 2026 01:54:39 +0100
+Subject: [PATCH] ASoC: codecs: wcd937x: Switch the RX clocks off with the last
+ RX input
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The RX clocks and supplies are enabled by the DAC widgets (RDAC1-4,
+PRE_PMU) and disabled by the RX input mixers (RX1-3, POST_PMD). The
+enable counts at most one user, while every RX input that powers down
+disables them, so the first input to go off cut the RX clocks while
+another path could still be playing; the next ones logged "clk already
+disabled", which this phone printed at every stream stop.
+
+Track the powered RX inputs in a bitmask and disable the clocks only
+when the last one powers down. Each input still clears its own
+digital clock bit as before.
+
+Found by reading the driver (a research pass over the audio stall);
+built, not yet run on the device.
+
+Disclosure: LLMGD-2 · origin O1 (the model wrote the change)
+LLMGD: v0.3; assurance=A2; flags=none; origin=O1; origin_headline=O1; scope=kernel; graded-by=claude-opus-5-5; retrieval=none
+---
+ sound/soc/codecs/wcd937x.c | 26 +++++++++++++++++++++++---
+ 1 file changed, 23 insertions(+), 3 deletions(-)
+
+diff --git a/sound/soc/codecs/wcd937x.c b/sound/soc/codecs/wcd937x.c
+index 0dd05604f..32d8d2e1f 100644
+--- a/sound/soc/codecs/wcd937x.c
++++ b/sound/soc/codecs/wcd937x.c
+@@ -106,6 +106,8 @@ struct wcd937x_priv {
+ 	struct gpio_desc *reset_gpio;
+ 
+ 	atomic_t rx_clk_cnt;
++	/* RX1-RX3 inputs that are powered; the RX clocks go off with the last one */
++	unsigned long rx_active;
+ 	atomic_t ana_clk_count;
+ };
+ 
+@@ -848,9 +850,15 @@ static int wcd937x_enable_rx1(struct snd_soc_dapm_widget *w,
+ 			      int event)
+ {
+ 	struct snd_soc_component *component = snd_soc_dapm_to_component(w->dapm);
++	struct wcd937x_priv *wcd937x = snd_soc_component_get_drvdata(component);
++
++	if (event == SND_SOC_DAPM_PRE_PMU)
++		set_bit(0, &wcd937x->rx_active);
+ 
+ 	if (event == SND_SOC_DAPM_POST_PMD) {
+-		wcd937x_rx_clk_disable(component);
++		clear_bit(0, &wcd937x->rx_active);
++		if (!wcd937x->rx_active)
++			wcd937x_rx_clk_disable(component);
+ 		snd_soc_component_update_bits(component,
+ 					      WCD937X_DIGITAL_CDC_DIG_CLK_CTL,
+ 					      BIT(0), 0x00);
+@@ -863,9 +871,15 @@ static int wcd937x_enable_rx2(struct snd_soc_dapm_widget *w,
+ 			      struct snd_kcontrol *kcontrol, int event)
+ {
+ 	struct snd_soc_component *component = snd_soc_dapm_to_component(w->dapm);
++	struct wcd937x_priv *wcd937x = snd_soc_component_get_drvdata(component);
++
++	if (event == SND_SOC_DAPM_PRE_PMU)
++		set_bit(1, &wcd937x->rx_active);
+ 
+ 	if (event == SND_SOC_DAPM_POST_PMD) {
+-		wcd937x_rx_clk_disable(component);
++		clear_bit(1, &wcd937x->rx_active);
++		if (!wcd937x->rx_active)
++			wcd937x_rx_clk_disable(component);
+ 		snd_soc_component_update_bits(component,
+ 					      WCD937X_DIGITAL_CDC_DIG_CLK_CTL,
+ 					      BIT(1), 0x00);
+@@ -879,10 +893,16 @@ static int wcd937x_enable_rx3(struct snd_soc_dapm_widget *w,
+ 			      int event)
+ {
+ 	struct snd_soc_component *component = snd_soc_dapm_to_component(w->dapm);
++	struct wcd937x_priv *wcd937x = snd_soc_component_get_drvdata(component);
++
++	if (event == SND_SOC_DAPM_PRE_PMU)
++		set_bit(2, &wcd937x->rx_active);
+ 
+ 	if (event == SND_SOC_DAPM_POST_PMD) {
+ 		usleep_range(6000, 6010);
+-		wcd937x_rx_clk_disable(component);
++		clear_bit(2, &wcd937x->rx_active);
++		if (!wcd937x->rx_active)
++			wcd937x_rx_clk_disable(component);
+ 		snd_soc_component_update_bits(component,
+ 					      WCD937X_DIGITAL_CDC_DIG_CLK_CTL,
+ 					      BIT(2), 0x00);
+-- 
+2.56.0
+
