@@ -3,8 +3,8 @@
 State: **incoming calls over VoLTE worked** in a manual test on Vodafone DE (LTE). Two calls
 rang at once, the status bar kept 4G through the calls (before this, every incoming call moved
 the phone to 2G), audio both ways (author). Since 2026-11-13 the plumbing is in place:
-oFono patch 0022 and the daemon `qx1050-imsd` (unit shipped, **not enabled**:
-`systemctl enable --now qx1050-imsd`). Verified: the modem asks, oFono's `ims` context comes up,
+oFono patch 0022 and the daemon `qx1050-imsd`, enabled at boot since 2026-11-15
+(`systemctl disable --now qx1050-imsd` turns VoLTE off; calls then ring by CS fallback). Verified: the modem asks, oFono's `ims` context comes up,
 the address is reported. Calls through the daemon, outgoing calls, reboot, suspend and SMS over
 IMS are untested.
 
