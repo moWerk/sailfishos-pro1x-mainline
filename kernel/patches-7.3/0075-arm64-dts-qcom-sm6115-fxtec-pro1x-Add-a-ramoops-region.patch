@@ -1,0 +1,53 @@
+From 71423a6aed87e9278654a85f4c45f9fe0efff3c7 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Mon, 16 Nov 2026 10:51:39 +0100
+Subject: [PATCH] arm64: dts: qcom: sm6115-fxtec-pro1x: Add a ramoops region
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The phone has no persistent store for a panic: twice a hang left no
+trace (pstore had no backend). Reserve 1 MiB for ramoops so the kernel
+log of a panic or oops, the console and userspace messages survive a
+warm reboot, at the address the Lenovo Tab M10 Plus (SM6115P) uses.
+The default CMA area is placed dynamically and moves below it.
+
+Built, not yet run on the device.
+
+Disclosure: LLMGD-2 · origin O1 (the model wrote the change)
+LLMGD: v0.3; assurance=A2; flags=none; origin=O1; origin_headline=O1; scope=kernel; graded-by=claude-opus-5-5; retrieval=none
+---
+ arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts b/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
+index 1d1ba8e1b..8ccbc0327 100644
+--- a/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
++++ b/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
+@@ -25,6 +25,23 @@ aliases {
+ 		serial1 = &uart3;
+ 	};
+ 
++	reserved-memory {
++		/*
++		 * Kernel log of a panic or oops, the console and userspace
++		 * messages, kept across a warm reboot (read in
++		 * /sys/fs/pstore). The address is the one the Lenovo Tab M10
++		 * Plus (SM6115P) uses; the default CMA area moves below it.
++		 */
++		ramoops@ffc00000 {
++			compatible = "ramoops";
++			reg = <0x0 0xffc00000 0x0 0x100000>;
++			record-size = <0x10000>;
++			console-size = <0x40000>;
++			pmsg-size = <0x20000>;
++			ecc-size = <16>;
++		};
++	};
++
+ 	chosen {
+ 		#address-cells = <2>;
+ 		#size-cells = <2>;
+-- 
+2.56.0
+

@@ -1,0 +1,11 @@
+[Unit]
+Description=Save the previous boot's panic log and console from ramoops to /var/log/pstore
+After=local-fs.target
+ConditionDirectoryNotEmpty=/sys/fs/pstore
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/droid/qx1050-pstore-save.sh
+
+[Install]
+WantedBy=multi-user.target

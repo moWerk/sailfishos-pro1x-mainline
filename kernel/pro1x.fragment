@@ -218,3 +218,13 @@ CONFIG_CRYPTO_CBC=y
 CONFIG_CRYPTO_SHA256=y
 CONFIG_CRYPTO_SHA512=y
 CONFIG_CRYPTO_USER_API_SKCIPHER=y
+# Crash evidence (2026-11-16): ramoops (DT region, patch 0075) keeps the panic log, the console
+# and userspace messages across a warm reboot; the lockup and hung-task detectors turn a silent
+# hang into a panic when /etc/sysctl.d/90-qx1050-panic.conf asks for it.
+CONFIG_PSTORE_RAM=y
+CONFIG_PSTORE_CONSOLE=y
+CONFIG_PSTORE_PMSG=y
+CONFIG_SOFTLOCKUP_DETECTOR=y
+CONFIG_HARDLOCKUP_DETECTOR=y
+CONFIG_DETECT_HUNG_TASK=y
+CONFIG_DEFAULT_HUNG_TASK_TIMEOUT=120
