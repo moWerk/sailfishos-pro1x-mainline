@@ -3,8 +3,10 @@ Description=IMS data for VoLTE: brings up the IMS connection the modem asks for 
 # The modem runs the IMS stack; it asks the host for the IMS PDN over QMI service 770 and only
 # with the voice domain at ps-preferred. The connection is an oFono "ims" context (oFono patch
 # 0022 adds the modem's profile index). Enabled at boot since 2026-11-15; notes/volte.md.
+# Never Wants= or Requires= ofono: qx1050-modem-prep starts ofono once the rmnet links exist;
+# ofono started earlier finds no links and builds no modem (no calls, SMS or data). The daemon
+# waits for oFono's modem itself.
 After=ofono.service qx1050-modem-prep.service
-Wants=ofono.service
 
 [Service]
 Type=simple

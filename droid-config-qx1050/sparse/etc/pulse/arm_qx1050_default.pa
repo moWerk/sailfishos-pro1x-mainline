@@ -29,9 +29,11 @@ load-module module-augment-properties
 load-module module-null-sink sink_name=sink.null rate=48000
 load-module module-null-source source_name=source.null rate=48000
 
-# Bluetooth audio waits for the wcn399x power-cycle issue; do not fail the server on it.
+# Bluetooth: A2DP, and headsets in calls through oFono's handsfree audio manager (SCO over HCI).
+# The droid backend needs the hybris audio HAL and never makes a headset sink here. CVSD until
+# mSBC is proven. Do not fail the server on Bluetooth.
 .nofail
-load-module module-bluetooth-discover headset=droid
+load-module module-bluez5-discover headset=ofono enable_msbc=false
 .fail
 
 load-module module-policy-enforcement
