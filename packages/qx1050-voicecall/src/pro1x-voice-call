@@ -131,10 +131,10 @@ start_bridge() {
     echo "bluetooth: no handsfree sink/source, no bridge"
     return 1
   fi
-  for m in "module-alsa-sink device=hw:RTProxy,0 sink_name=rtproxy_uplink rate=48000 channels=2 tsched=0 sink_properties=pro1x.voice=keepalive" \
-           "module-alsa-source device=hw:RTProxy,1 source_name=rtproxy_downlink rate=48000 channels=2 tsched=0 source_properties=pro1x.voice=keepalive" \
-           "module-loopback source=$hs_src sink=rtproxy_uplink latency_msec=60 sink_input_properties=pro1x.voice=keepalive source_output_properties=pro1x.voice=keepalive" \
-           "module-loopback source=rtproxy_downlink sink=$hs_sink latency_msec=60 sink_input_properties=pro1x.voice=keepalive source_output_properties=pro1x.voice=keepalive"; do
+  for m in "module-alsa-sink device=hw:RTProxy,0 sink_name=rtproxy_uplink rate=48000 channels=2 tsched=0 sink_properties=pro1x.voice=bridge" \
+           "module-alsa-source device=hw:RTProxy,1 source_name=rtproxy_downlink rate=48000 channels=2 tsched=0 source_properties=pro1x.voice=bridge" \
+           "module-loopback source=$hs_src sink=rtproxy_uplink latency_msec=60 sink_input_properties=pro1x.voice=bridge source_output_properties=pro1x.voice=bridge" \
+           "module-loopback source=rtproxy_downlink sink=$hs_sink latency_msec=60 sink_input_properties=pro1x.voice=bridge source_output_properties=pro1x.voice=bridge"; do
     # shellcheck disable=SC2086
     bt_mods="$(pactl load-module $m) $bt_mods" || echo "bluetooth: load failed: $m"
   done
