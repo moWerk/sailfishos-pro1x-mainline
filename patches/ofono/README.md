@@ -72,12 +72,16 @@ Version 2.12.0+git5, Release 1, Patch20 = 0021, Patch21 = 0022; built in the 5.1
 - **IPv6 fix (upstream bug):** `qmi_activate_primary` passed the PDP type (IPv4 0, IPv6 2,
   IPv4v6 3) to `start_network`, which takes the IP support type (IPv4 0, IPv6 1, IPv4v6 2). An
   `ipv6` context started both families; an `dual` context failed at once ("Operation failed",
-  the 2026-11-12 IPv6 test). Worth sending upstream.
+  the 2026-11-12 IPv6 test). Already fixed upstream after 2.12 (ofono.git 3dce963
+  "qmimodem: gprs-context: Fix non-default bearer activation", 2024-11-21): drop this part when
+  the base moves past it.
 - **Modem profile:** before START NETWORK the driver lists the modem's 3GPP profiles and, when
   one has the context's APN, sends its index (TLV 0x31) and leaves the authentication to the
   profile unless credentials are set. The IMS PDN is granted only with it (without: CallFailed,
   call manager reason 231). Contexts whose APN matches no stored profile start as before.
 - **Call end reasons** are logged when START NETWORK fails.
+- Upstream status (checked 2026-11-17 against ofono.git master): neither the stored profile
+  index nor the call end reasons exist there; both are upstream candidates (read-back first).
 
 Device result (2.12.0+git5-1, Vodafone DE): mobile data back at once after the restart; an
 `ims` context (APN ims, ipv6) activates with an address on rmnet_data1, the internet context

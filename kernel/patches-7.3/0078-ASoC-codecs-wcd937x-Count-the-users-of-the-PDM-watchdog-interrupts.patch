@@ -1,0 +1,158 @@
+From aa46c0df513d518434c926380f67a2a2f1f70283 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Tue, 17 Nov 2026 02:34:11 +0100
+Subject: [PATCH] ASoC: codecs: wcd937x: Count the users of the PDM watchdog
+ interrupts
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The EAR PA enables the HPHL (or AUX) PDM watchdog interrupt, which the
+HPHL (or AUX) PA enables as well. When both run at once, as on boards
+whose speaker amplifiers sit behind the HPH outputs, the second
+enable_irq() is unbalanced:
+
+  Unbalanced enable for IRQ 200
+  WARNING: kernel/irq/manage.c:775 at __enable_irq+0x4c/0x7c
+   wcd937x_codec_enable_ear_pa+0x1e4/0x230 [snd_soc_wcd937x]
+
+and the first PA to power down disables the interrupt under the other.
+Count the users per watchdog interrupt and enable it for the first,
+disable it after the last.
+
+Reproduced on the F(x)tec Pro1-X (SM6115, WCD9370) by switching from
+the speaker to the earpiece during playback, and on every answered call.
+
+Disclosure: LLMGD-2 · origin O1 (the model wrote the change)
+LLMGD: v0.3; assurance=A2; flags=none; origin=O1; origin_headline=O1; scope=kernel; graded-by=claude-opus-5-5; retrieval=none
+---
+ sound/soc/codecs/wcd937x.c | 60 +++++++++++++++++++++++++++++++-------
+ 1 file changed, 50 insertions(+), 10 deletions(-)
+
+diff --git a/sound/soc/codecs/wcd937x.c b/sound/soc/codecs/wcd937x.c
+index 32d8d2e1f..0a1d5ae7c 100644
+--- a/sound/soc/codecs/wcd937x.c
++++ b/sound/soc/codecs/wcd937x.c
+@@ -99,6 +99,9 @@ struct wcd937x_priv {
+ 	int hphr_pdm_wd_int;
+ 	int hphl_pdm_wd_int;
+ 	int aux_pdm_wd_int;
++	/* users of each PDM watchdog interrupt: the EAR PA shares HPHL's or AUX's */
++	unsigned int wd_irq_users[3];
++	struct mutex wd_irq_lock;
+ 	bool comp1_enable;
+ 	bool comp2_enable;
+ 
+@@ -577,6 +580,42 @@ static int wcd937x_codec_aux_dac_event(struct snd_soc_dapm_widget *w,
+ 	return 0;
+ }
+ 
++
++/*
++ * The PDM watchdog interrupts are shared: the EAR PA enables the HPHL or the
++ * AUX one, which the HPHL or AUX PA may already have enabled (on boards whose
++ * speaker amplifiers sit behind the HPH outputs both run at once), and a
++ * second enable_irq() is unbalanced. Count the users per interrupt.
++ */
++static int wcd937x_wd_irq_index(struct wcd937x_priv *wcd937x, int irq)
++{
++	if (irq == wcd937x->hphr_pdm_wd_int)
++		return 0;
++	if (irq == wcd937x->hphl_pdm_wd_int)
++		return 1;
++	return 2;
++}
++
++static void wcd937x_wd_irq_get(struct wcd937x_priv *wcd937x, int irq)
++{
++	int i = wcd937x_wd_irq_index(wcd937x, irq);
++
++	mutex_lock(&wcd937x->wd_irq_lock);
++	if (wcd937x->wd_irq_users[i]++ == 0)
++		enable_irq(irq);
++	mutex_unlock(&wcd937x->wd_irq_lock);
++}
++
++static void wcd937x_wd_irq_put(struct wcd937x_priv *wcd937x, int irq)
++{
++	int i = wcd937x_wd_irq_index(wcd937x, irq);
++
++	mutex_lock(&wcd937x->wd_irq_lock);
++	if (wcd937x->wd_irq_users[i] && --wcd937x->wd_irq_users[i] == 0)
++		disable_irq_nosync(irq);
++	mutex_unlock(&wcd937x->wd_irq_lock);
++}
++
+ static int wcd937x_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
+ 					struct snd_kcontrol *kcontrol,
+ 					int event)
+@@ -615,10 +654,10 @@ static int wcd937x_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
+ 			snd_soc_component_update_bits(component,
+ 						      WCD937X_ANA_RX_SUPPLIES,
+ 						      BIT(1), BIT(1));
+-		enable_irq(wcd937x->hphr_pdm_wd_int);
++		wcd937x_wd_irq_get(wcd937x, wcd937x->hphr_pdm_wd_int);
+ 		break;
+ 	case SND_SOC_DAPM_PRE_PMD:
+-		disable_irq_nosync(wcd937x->hphr_pdm_wd_int);
++		wcd937x_wd_irq_put(wcd937x, wcd937x->hphr_pdm_wd_int);
+ 		set_bit(HPH_PA_DELAY, &wcd937x->status_mask);
+ 		wcd_mbhc_event_notify(wcd937x->wcd_mbhc, WCD_EVENT_PRE_HPHR_PA_OFF);
+ 		break;
+@@ -683,10 +722,10 @@ static int wcd937x_codec_enable_hphl_pa(struct snd_soc_dapm_widget *w,
+ 			snd_soc_component_update_bits(component,
+ 						      WCD937X_ANA_RX_SUPPLIES,
+ 						      BIT(1), BIT(1));
+-		enable_irq(wcd937x->hphl_pdm_wd_int);
++		wcd937x_wd_irq_get(wcd937x, wcd937x->hphl_pdm_wd_int);
+ 		break;
+ 	case SND_SOC_DAPM_PRE_PMD:
+-		disable_irq_nosync(wcd937x->hphl_pdm_wd_int);
++		wcd937x_wd_irq_put(wcd937x, wcd937x->hphl_pdm_wd_int);
+ 		set_bit(HPH_PA_DELAY, &wcd937x->status_mask);
+ 		wcd_mbhc_event_notify(wcd937x->wcd_mbhc, WCD_EVENT_PRE_HPHL_PA_OFF);
+ 		break;
+@@ -746,10 +785,10 @@ static int wcd937x_codec_enable_aux_pa(struct snd_soc_dapm_widget *w,
+ 		snd_soc_component_update_bits(component,
+ 					      WCD937X_ANA_RX_SUPPLIES,
+ 					      BIT(7), BIT(7));
+-		enable_irq(wcd937x->aux_pdm_wd_int);
++		wcd937x_wd_irq_get(wcd937x, wcd937x->aux_pdm_wd_int);
+ 		break;
+ 	case SND_SOC_DAPM_PRE_PMD:
+-		disable_irq_nosync(wcd937x->aux_pdm_wd_int);
++		wcd937x_wd_irq_put(wcd937x, wcd937x->aux_pdm_wd_int);
+ 		snd_soc_component_update_bits(component,
+ 					      WCD937X_ANA_RX_SUPPLIES,
+ 					      BIT(6), 0x00);
+@@ -808,15 +847,15 @@ static int wcd937x_codec_enable_ear_pa(struct snd_soc_dapm_widget *w,
+ 						      BIT(1), BIT(1));
+ 
+ 		if (wcd937x->ear_rx_path & EAR_RX_PATH_AUX)
+-			enable_irq(wcd937x->aux_pdm_wd_int);
++			wcd937x_wd_irq_get(wcd937x, wcd937x->aux_pdm_wd_int);
+ 		else
+-			enable_irq(wcd937x->hphl_pdm_wd_int);
++			wcd937x_wd_irq_get(wcd937x, wcd937x->hphl_pdm_wd_int);
+ 		break;
+ 	case SND_SOC_DAPM_PRE_PMD:
+ 		if (wcd937x->ear_rx_path & EAR_RX_PATH_AUX)
+-			disable_irq_nosync(wcd937x->aux_pdm_wd_int);
++			wcd937x_wd_irq_put(wcd937x, wcd937x->aux_pdm_wd_int);
+ 		else
+-			disable_irq_nosync(wcd937x->hphl_pdm_wd_int);
++			wcd937x_wd_irq_put(wcd937x, wcd937x->hphl_pdm_wd_int);
+ 		break;
+ 	case SND_SOC_DAPM_POST_PMD:
+ 		if (!wcd937x->comp1_enable)
+@@ -2925,6 +2964,7 @@ static int wcd937x_probe(struct platform_device *pdev)
+ 
+ 	dev_set_drvdata(dev, wcd937x);
+ 	mutex_init(&wcd937x->micb_lock);
++	mutex_init(&wcd937x->wd_irq_lock);
+ 	wcd937x->common.dev = dev;
+ 	wcd937x->common.max_bias = 3;
+ 
+-- 
+2.56.0
+
