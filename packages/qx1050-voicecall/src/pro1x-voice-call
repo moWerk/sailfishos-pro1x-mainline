@@ -111,11 +111,53 @@ follow_volume() {
 # Route the DSP voice session to the codec DMA ends while it runs. It does not cause
 # the back end stall, but while it is on, the session keeps the stalled back ends from
 # restarting.
+# Bluetooth headset in the call: the DSP voice session goes to the AFE real-time proxy ports
+# (kernel patches 0076/0077) instead of the codec, and two PulseAudio loopbacks bridge them to
+# the headset (RTProxy card <-> bluez handsfree sink/source). A headset counts when a bluez
+# sink is in the handsfree profile, or by hand with /run/pro1x-voice-bt or
+# $XDG_RUNTIME_DIR/pro1x-voice-bt. Decided when the session starts; a change restarts it.
+bt=0
+bt_detect() {
+  [ -e /run/pro1x-voice-bt ] || [ -e "${XDG_RUNTIME_DIR:-/tmp}/pro1x-voice-bt" ] && { echo 1; return; }
+  pactl list short sinks 2>/dev/null | awk '$2 ~ /^bluez_sink\..*handsfree_head_unit$/ { f = 1 } END { print f ? 1 : 0 }'
+}
+
+bt_mods=""
+start_bridge() {
+  local hs_sink hs_src m
+  hs_sink=$(pactl list short sinks | awk '$2 ~ /^bluez_sink\..*handsfree_head_unit$/ { print $2; exit }')
+  hs_src=$(pactl list short sources | awk '$2 ~ /^bluez_source\..*handsfree_head_unit$/ { print $2; exit }')
+  if [ -z "$hs_sink" ] || [ -z "$hs_src" ]; then
+    echo "bluetooth: no handsfree sink/source, no bridge"
+    return 1
+  fi
+  for m in "module-alsa-sink device=hw:RTProxy,0 sink_name=rtproxy_uplink rate=48000 channels=2 tsched=0 sink_properties=pro1x.voice=keepalive" \
+           "module-alsa-source device=hw:RTProxy,1 source_name=rtproxy_downlink rate=48000 channels=2 tsched=0 source_properties=pro1x.voice=keepalive" \
+           "module-loopback source=$hs_src sink=rtproxy_uplink latency_msec=60 sink_input_properties=pro1x.voice=keepalive source_output_properties=pro1x.voice=keepalive" \
+           "module-loopback source=rtproxy_downlink sink=$hs_sink latency_msec=60 sink_input_properties=pro1x.voice=keepalive source_output_properties=pro1x.voice=keepalive"; do
+    # shellcheck disable=SC2086
+    bt_mods="$(pactl load-module $m) $bt_mods" || echo "bluetooth: load failed: $m"
+  done
+  echo "bluetooth bridge up: $hs_src -> RTProxy uplink, RTProxy downlink -> $hs_sink (modules $bt_mods)"
+}
+
+stop_bridge() {
+  local m
+  for m in $bt_mods; do pactl unload-module "$m" 2>/dev/null; done
+  [ -z "$bt_mods" ] || echo "bluetooth bridge down"
+  bt_mods=""
+}
+
 voice_route() {
-  local tx=$1
+  local tx=$1 rx=$1 btrx=0 bttx=0
   [ "$1" = 1 ] && [ "$muted" = yes ] && tx=0 # in-call mute, see follow_mute
-  amixer -q -c0 cset name='RX_CODEC_DMA_RX_0 Voice Mixer VoiceMMode1' "$1"
+  if [ "$1" = 1 ] && [ "$bt" = 1 ]; then
+    btrx=1; bttx=$tx; rx=0; tx=0
+  fi
+  amixer -q -c0 cset name='RX_CODEC_DMA_RX_0 Voice Mixer VoiceMMode1' "$rx"
   amixer -q -c0 cset name='VoiceMMode1 Capture Mixer VA_CODEC_DMA_TX_0' "$tx"
+  amixer -q -c0 cset name='RT_PROXY_RX_1 Voice Mixer VoiceMMode1' "$btrx" 2>/dev/null
+  amixer -q -c0 cset name='VoiceMMode1 Capture Mixer RT_PROXY_TX_1' "$bttx" 2>/dev/null
 }
 
 # In-call mute. Untested; mirrors the Guix port's follow_mute (fxtec-pro1x-guix 8545724), whose
@@ -176,10 +218,12 @@ calls() { # object paths of the connected calls, on one line (SailfishOS: ofono)
 }
 
 start_pcm() {
+  bt=$(bt_detect)
   voice_route 1
   pro1x-voicepcm &
   vp="$!"
-  echo "voice session started"
+  echo "voice session started$( [ "$bt" = 1 ] && echo ' (bluetooth headset)')"
+  [ "$bt" = 1 ] && start_bridge
 }
 
 stop_pcm() {
@@ -189,6 +233,7 @@ stop_pcm() {
     echo "voice session stopped"
   fi
   vp=""
+  stop_bridge
   muted=no # voicecall-manager unmutes when the last call is gone
   mute_now=""
   voice_route 0
@@ -226,6 +271,10 @@ while :; do
   for c in $now; do
     case " $sig " in *" $c "*) ;; *) added=1 ;; esac
   done
+  if [ -n "$vp" ] && [ "$added" = 0 ] && [ "$(bt_detect)" != "$bt" ]; then
+    echo "bluetooth headset $( [ "$bt" = 1 ] && echo left || echo joined) the call"
+    added=1 # restart the session on the new route
+  fi
   if [ "$added" = 1 ]; then
     stop_pcm
     start_pcm # a new call: (re)start the session

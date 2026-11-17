@@ -1,0 +1,473 @@
+From 7be039d33bcd8979bf0d73ad5e532b2aabf03e83 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Tue, 17 Nov 2026 00:18:17 +0100
+Subject: [PATCH] ASoC: qcom: q6afe: real-time proxy ports as voice back ends
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The AFE real-time proxy ports (0x2000 RX, 0x2001 TX) are the DSP's host
+data path: what the DSP plays into RX the host can read, what the host
+writes the DSP captures from TX. Downstream uses them to carry a call's
+audio to and from the host, where it goes to a Bluetooth headset over
+HCI. This adds them as ordinary back ends, gate 1 of that work:
+
+- port indices RT_PROXY_RX_1/RT_PROXY_TX_1, port table entries and the
+  RT proxy config (16-bit interleaved, frame = period, jitter half a
+  frame, no watermark events, as downstream configures them);
+- q6afe-dai DAIs, widgets and routes, started and stopped like the
+  codec DMA ports;
+- q6voice-dai: "RT_PROXY_TX_1" in the VoiceMMode1 capture mixer and an
+  "RT_PROXY_RX_1 Voice Mixer";
+- the Pro1-X board: two back-end links with stand-in S/PDIF codecs.
+
+The host side (shared memory, read and write commands) comes with the
+next change. Built, not yet run on the device.
+
+Disclosure: LLMGD-2 · origin O1 (the model wrote the change from the downstream audio-kernel sources)
+LLMGD: v0.3; assurance=A2; flags=none; origin=O1; origin_headline=O1; scope=kernel; graded-by=claude-opus-5-5; retrieval=none
+---
+ .../boot/dts/qcom/sm6115-fxtec-pro1x.dts      | 48 ++++++++++++++++
+ .../sound/qcom,q6dsp-lpass-ports.h            |  2 +
+ sound/soc/qcom/common.h                       |  2 +-
+ sound/soc/qcom/qdsp6/q6afe-dai.c              | 33 +++++++++++
+ sound/soc/qcom/qdsp6/q6afe.c                  | 55 +++++++++++++++++++
+ sound/soc/qcom/qdsp6/q6afe.h                  |  9 +++
+ sound/soc/qcom/qdsp6/q6dsp-lpass-ports.c      | 32 +++++++++++
+ sound/soc/qcom/qdsp6/q6dsp-lpass-ports.h      |  1 +
+ sound/soc/qcom/qdsp6/q6voice-dai.c            | 16 ++++++
+ 9 files changed, 197 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts b/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
+index 8ccbc0327..b98d0f8d1 100644
+--- a/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
++++ b/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
+@@ -224,6 +224,21 @@ kbd-backlight {
+ 		};
+ 	};
+ 
++	/*
++	 * Stand-in codecs for the two real-time proxy back ends: the AFE
++	 * ports carry a call's audio to and from the host, no codec is
++	 * behind them, but a back-end link needs one.
++	 */
++	rt_proxy_codec_rx: rt-proxy-codec-rx {
++		compatible = "linux,spdif-dit";
++		#sound-dai-cells = <0>;
++	};
++
++	rt_proxy_codec_tx: rt-proxy-codec-tx {
++		compatible = "linux,spdif-dir";
++		#sound-dai-cells = <0>;
++	};
++
+ 	battery: battery {
+ 		compatible = "simple-battery";
+ 		device-chemistry = "lithium-ion";
+@@ -542,6 +557,39 @@ cpu {
+ 			};
+ 		};
+ 
++		/* a call's downlink to the host and uplink from it (Bluetooth headsets) */
++		rt-proxy-rx-dai-link {
++			link-name = "RT Proxy Playback";
++
++			codec {
++				sound-dai = <&rt_proxy_codec_rx>;
++			};
++
++			cpu {
++				sound-dai = <&q6afedai RT_PROXY_RX_1>;
++			};
++
++			platform {
++				sound-dai = <&q6routing>;
++			};
++		};
++
++		rt-proxy-tx-dai-link {
++			link-name = "RT Proxy Capture";
++
++			codec {
++				sound-dai = <&rt_proxy_codec_tx>;
++			};
++
++			cpu {
++				sound-dai = <&q6afedai RT_PROXY_TX_1>;
++			};
++
++			platform {
++				sound-dai = <&q6routing>;
++			};
++		};
++
+ 		wcd-capture-dai-link {
+ 			link-name = "WCD Capture";
+ 
+diff --git a/include/dt-bindings/sound/qcom,q6dsp-lpass-ports.h b/include/dt-bindings/sound/qcom,q6dsp-lpass-ports.h
+index 3a99703db..8cfed47f6 100644
+--- a/include/dt-bindings/sound/qcom,q6dsp-lpass-ports.h
++++ b/include/dt-bindings/sound/qcom,q6dsp-lpass-ports.h
+@@ -156,6 +156,8 @@
+ #define LPI_MI2S_TX_5		150
+ #define LPI_MI2S_RX_6		151
+ #define LPI_MI2S_TX_6		152
++#define RT_PROXY_RX_1		153
++#define RT_PROXY_TX_1		154
+ 
+ #define LPASS_CLK_ID_PRI_MI2S_IBIT	1
+ #define LPASS_CLK_ID_PRI_MI2S_EBIT	2
+diff --git a/sound/soc/qcom/common.h b/sound/soc/qcom/common.h
+index c1deac109..43c061ff9 100644
+--- a/sound/soc/qcom/common.h
++++ b/sound/soc/qcom/common.h
+@@ -7,7 +7,7 @@
+ #include <dt-bindings/sound/qcom,q6afe.h>
+ #include <sound/soc.h>
+ 
+-#define LPASS_MAX_PORT			(LPI_MI2S_TX_6 + 1)
++#define LPASS_MAX_PORT			(RT_PROXY_TX_1 + 1)
+ 
+ struct qcom_snd_tdm_slot_cfg {
+ 	unsigned int tx_mask;
+diff --git a/sound/soc/qcom/qdsp6/q6afe-dai.c b/sound/soc/qcom/qdsp6/q6afe-dai.c
+index 920345609..7400e2544 100644
+--- a/sound/soc/qcom/qdsp6/q6afe-dai.c
++++ b/sound/soc/qcom/qdsp6/q6afe-dai.c
+@@ -92,6 +92,20 @@ static int q6hdmi_hw_params(struct snd_pcm_substream *substream,
+ 	return 0;
+ }
+ 
++static int q6afe_rt_proxy_hw_params(struct snd_pcm_substream *substream,
++				    struct snd_pcm_hw_params *params,
++				    struct snd_soc_dai *dai)
++{
++	struct q6afe_dai_data *dai_data = dev_get_drvdata(dai->dev);
++	struct q6afe_rt_proxy_cfg *rt = &dai_data->port_config[dai->id].rt_proxy;
++
++	rt->sample_rate = params_rate(params);
++	rt->num_channels = params_channels(params);
++	rt->frame_size = params_period_bytes(params);
++
++	return 0;
++}
++
+ static int q6afe_usb_hw_params(struct snd_pcm_substream *substream,
+ 			       struct snd_pcm_hw_params *params,
+ 			       struct snd_soc_dai *dai)
+@@ -434,6 +448,11 @@ static int q6afe_dai_prepare(struct snd_pcm_substream *substream,
+ 		q6afe_usb_port_prepare(dai_data->port[dai->id],
+ 				       &dai_data->port_config[dai->id].usb_audio);
+ 		break;
++	case RT_PROXY_RX_1:
++	case RT_PROXY_TX_1:
++		q6afe_rt_proxy_port_prepare(dai_data->port[dai->id],
++					    &dai_data->port_config[dai->id].rt_proxy);
++		break;
+ 	default:
+ 		return -EINVAL;
+ 	}
+@@ -668,6 +687,9 @@ static const struct snd_soc_dapm_route q6afe_dapm_routes[] = {
+ 	/* USB playback AFE port receives data for playback, hence use the RX port */
+ 	{"USB Playback", NULL, "USB_RX"},
+ 
++	{"RT_PROXY_RX_1 Playback", NULL, "RT_PROXY_RX_1"},
++	{"RT_PROXY_TX_1", NULL, "RT_PROXY_TX_1 Capture"},
++
+ 	{"LPI RX0 MI2S Playback", NULL, "LPI_MI2S_RX_0"},
+ 	{"LPI_MI2S_TX_0", NULL, "LPI TX0 MI2S Capture"},
+ 	{"LPI RX1 MI2S Playback", NULL, "LPI_MI2S_RX_1"},
+@@ -726,6 +748,14 @@ static const struct snd_soc_dai_ops q6afe_usb_ops = {
+ 	 */
+ };
+ 
++static const struct snd_soc_dai_ops q6rt_proxy_ops = {
++	.probe		= msm_dai_q6_dai_probe,
++	.remove		= msm_dai_q6_dai_remove,
++	.prepare	= q6afe_dai_prepare,
++	.shutdown	= q6afe_dai_shutdown,
++	.hw_params	= q6afe_rt_proxy_hw_params,
++};
++
+ static const struct snd_soc_dai_ops q6hdmi_ops = {
+ 	.probe			= msm_dai_q6_dai_probe,
+ 	.remove			= msm_dai_q6_dai_remove,
+@@ -1028,6 +1058,8 @@ static const struct snd_soc_dapm_widget q6afe_dai_widgets[] = {
+ 		0, SND_SOC_NOPM, 0, 0),
+ 
+ 	SND_SOC_DAPM_AIF_IN("USB_RX", NULL, 0, SND_SOC_NOPM, 0, 0),
++	SND_SOC_DAPM_AIF_IN("RT_PROXY_RX_1", NULL, 0, SND_SOC_NOPM, 0, 0),
++	SND_SOC_DAPM_AIF_OUT("RT_PROXY_TX_1", NULL, 0, SND_SOC_NOPM, 0, 0),
+ 
+ 	SND_SOC_DAPM_AIF_IN("LPI_MI2S_RX_0", NULL,
+ 		0, SND_SOC_NOPM, 0, 0),
+@@ -1175,6 +1207,7 @@ static int q6afe_dai_dev_probe(struct platform_device *pdev)
+ 	cfg.q6tdm_ops = &q6tdm_ops;
+ 	cfg.q6dma_ops = &q6dma_ops;
+ 	cfg.q6usb_ops = &q6afe_usb_ops;
++	cfg.q6rt_proxy_ops = &q6rt_proxy_ops;
+ 	dais = q6dsp_audio_ports_set_config(dev, &cfg, &num_dais);
+ 
+ 	return devm_snd_soc_register_component(dev, &q6afe_dai_component, dais, num_dais);
+diff --git a/sound/soc/qcom/qdsp6/q6afe.c b/sound/soc/qcom/qdsp6/q6afe.c
+index 8c0c79d0b..f5510b5f5 100644
+--- a/sound/soc/qcom/qdsp6/q6afe.c
++++ b/sound/soc/qcom/qdsp6/q6afe.c
+@@ -85,6 +85,16 @@
+ /* USB AFE port */
+ #define AFE_PORT_ID_USB_RX                       0x7000
+ 
++/*
++ * Real-time proxy ports: the DSP side of a host data path. Audio played into
++ * RX by the DSP (for example a call's downlink) is read by the host, audio the
++ * host writes is captured from TX by the DSP (a call's uplink).
++ */
++#define AFE_PORT_ID_RT_PROXY_RX_1		0x2000
++#define AFE_PORT_ID_RT_PROXY_TX_1		0x2001
++#define AFE_PARAM_ID_RT_PROXY_CONFIG		0x00010213
++#define AFE_API_VERSION_RT_PROXY_CONFIG		0x1
++
+ #define AFE_API_VERSION_SLIMBUS_CONFIG 0x1
+ /* Clock set API version */
+ #define AFE_API_VERSION_CLOCK_SET 1
+@@ -621,6 +631,19 @@ struct afe_param_id_usb_audio_svc_interval {
+ 	u32	svc_interval;
+ } __packed;
+ 
++struct afe_param_id_rt_proxy_cfg {
++	u32 rt_proxy_cfg_minor_version;
++	u16 bit_width;
++	u16 interleaved;
++	u16 frame_size;
++	u16 jitter_allowance;
++	u16 low_water_mark;
++	u16 high_water_mark;
++	u32 sample_rate;
++	u16 num_channels;
++	u16 reserved;
++} __packed;
++
+ union afe_port_config {
+ 	struct afe_param_id_hdmi_multi_chan_audio_cfg hdmi_multi_ch;
+ 	struct afe_param_id_slimbus_cfg           slim_cfg;
+@@ -628,6 +651,7 @@ union afe_port_config {
+ 	struct afe_param_id_tdm_cfg	tdm_cfg;
+ 	struct afe_param_id_cdc_dma_cfg	dma_cfg;
+ 	struct afe_param_id_usb_cfg usb_cfg;
++	struct afe_param_id_rt_proxy_cfg rt_proxy_cfg;
+ } __packed;
+ 
+ 
+@@ -947,6 +971,8 @@ static struct afe_port_map port_maps[AFE_PORT_MAX] = {
+ 	[RX_CODEC_DMA_RX_7] = { AFE_PORT_ID_RX_CODEC_DMA_RX_7,
+ 				RX_CODEC_DMA_RX_7, 1, 1},
+ 	[USB_RX] = { AFE_PORT_ID_USB_RX, USB_RX, 1, 1},
++	[RT_PROXY_RX_1] = { AFE_PORT_ID_RT_PROXY_RX_1, RT_PROXY_RX_1, 1, 1},
++	[RT_PROXY_TX_1] = { AFE_PORT_ID_RT_PROXY_TX_1, RT_PROXY_TX_1, 0, 1},
+ 	[LPI_MI2S_RX_0] = { AFE_PORT_ID_INT0_MI2S_RX,
+ 				LPI_MI2S_RX_0, 1, 1},
+ 	[LPI_MI2S_TX_0] = { AFE_PORT_ID_INT0_MI2S_TX,
+@@ -1708,6 +1734,31 @@ void q6afe_cdc_dma_port_prepare(struct q6afe_port *port,
+ 		dma_cfg->active_channels_mask = (1 << cfg->num_channels) - 1;
+ }
+ EXPORT_SYMBOL_GPL(q6afe_cdc_dma_port_prepare);
++
++/**
++ * q6afe_rt_proxy_port_prepare() - Prepare a real-time proxy port
++ *
++ * @port: Instance of the port
++ * @cfg: Rate, channels and frame (period) size in bytes
++ *
++ * 16-bit interleaved, the jitter allowance half a frame, no watermark events,
++ * as the downstream audio driver configures it.
++ */
++void q6afe_rt_proxy_port_prepare(struct q6afe_port *port,
++				 struct q6afe_rt_proxy_cfg *cfg)
++{
++	struct afe_param_id_rt_proxy_cfg *pcfg = &port->port_cfg.rt_proxy_cfg;
++
++	memset(pcfg, 0, sizeof(*pcfg));
++	pcfg->rt_proxy_cfg_minor_version = AFE_API_VERSION_RT_PROXY_CONFIG;
++	pcfg->bit_width = 16;
++	pcfg->interleaved = 1;
++	pcfg->frame_size = cfg->frame_size;
++	pcfg->jitter_allowance = cfg->frame_size / 2;
++	pcfg->sample_rate = cfg->sample_rate;
++	pcfg->num_channels = cfg->num_channels;
++}
++EXPORT_SYMBOL_GPL(q6afe_rt_proxy_port_prepare);
+ /**
+  * q6afe_port_start() - Start a afe port
+  *
+@@ -1861,6 +1912,10 @@ struct q6afe_port *q6afe_port_get_from_id(struct device *dev, int id)
+ 	case AFE_PORT_ID_USB_RX:
+ 		cfg_type = AFE_PARAM_ID_USB_AUDIO_CONFIG;
+ 		break;
++	case AFE_PORT_ID_RT_PROXY_RX_1:
++	case AFE_PORT_ID_RT_PROXY_TX_1:
++		cfg_type = AFE_PARAM_ID_RT_PROXY_CONFIG;
++		break;
+ 	default:
+ 		dev_err(dev, "Invalid port id 0x%x\n", port_id);
+ 		return ERR_PTR(-EINVAL);
+diff --git a/sound/soc/qcom/qdsp6/q6afe.h b/sound/soc/qcom/qdsp6/q6afe.h
+index 0b8c3ec13..890bf65b5 100644
+--- a/sound/soc/qcom/qdsp6/q6afe.h
++++ b/sound/soc/qcom/qdsp6/q6afe.h
+@@ -235,6 +235,12 @@ struct q6afe_usb_cfg {
+ 	u16	num_channels;
+ };
+ 
++struct q6afe_rt_proxy_cfg {
++	u32 sample_rate;
++	u16 num_channels;
++	u16 frame_size;
++};
++
+ struct q6afe_port_config {
+ 	struct q6afe_hdmi_cfg hdmi;
+ 	struct q6afe_slim_cfg slim;
+@@ -242,6 +248,7 @@ struct q6afe_port_config {
+ 	struct q6afe_tdm_cfg tdm;
+ 	struct q6afe_cdc_dma_cfg dma_cfg;
+ 	struct q6afe_usb_cfg usb_audio;
++	struct q6afe_rt_proxy_cfg rt_proxy;
+ };
+ 
+ struct q6afe_port;
+@@ -251,6 +258,8 @@ int q6afe_port_start(struct q6afe_port *port);
+ int q6afe_port_stop(struct q6afe_port *port);
+ void q6afe_port_put(struct q6afe_port *port);
+ int q6afe_get_port_id(int index);
++void q6afe_rt_proxy_port_prepare(struct q6afe_port *port,
++				 struct q6afe_rt_proxy_cfg *cfg);
+ void q6afe_usb_port_prepare(struct q6afe_port *port,
+ 			    struct q6afe_usb_cfg *cfg);
+ void q6afe_hdmi_port_prepare(struct q6afe_port *port,
+diff --git a/sound/soc/qcom/qdsp6/q6dsp-lpass-ports.c b/sound/soc/qcom/qdsp6/q6dsp-lpass-ports.c
+index c3d8116ad..db1565a9c 100644
+--- a/sound/soc/qcom/qdsp6/q6dsp-lpass-ports.c
++++ b/sound/soc/qcom/qdsp6/q6dsp-lpass-ports.c
+@@ -153,6 +153,34 @@ static struct snd_soc_dai_driver q6dsp_audio_fe_dais[] = {
+ 		.id = USB_RX,
+ 		.name = "USB_RX",
+ 	},
++	{
++		.playback = {
++			.stream_name = "RT_PROXY_RX_1 Playback",
++			.rates = SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_16000 |
++				 SNDRV_PCM_RATE_48000,
++			.formats = SNDRV_PCM_FMTBIT_S16_LE,
++			.channels_min = 1,
++			.channels_max = 2,
++			.rate_min = 8000,
++			.rate_max = 48000,
++		},
++		.id = RT_PROXY_RX_1,
++		.name = "RT_PROXY_RX_1",
++	},
++	{
++		.capture = {
++			.stream_name = "RT_PROXY_TX_1 Capture",
++			.rates = SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_16000 |
++				 SNDRV_PCM_RATE_48000,
++			.formats = SNDRV_PCM_FMTBIT_S16_LE,
++			.channels_min = 1,
++			.channels_max = 2,
++			.rate_min = 8000,
++			.rate_max = 48000,
++		},
++		.id = RT_PROXY_TX_1,
++		.name = "RT_PROXY_TX_1",
++	},
+ 	{
+ 		.playback = {
+ 			.stream_name = "HDMI Playback",
+@@ -728,6 +756,10 @@ struct snd_soc_dai_driver *q6dsp_audio_ports_set_config(struct device *dev,
+ 		case USB_RX:
+ 			q6dsp_audio_fe_dais[i].ops = cfg->q6usb_ops;
+ 			break;
++		case RT_PROXY_RX_1:
++		case RT_PROXY_TX_1:
++			q6dsp_audio_fe_dais[i].ops = cfg->q6rt_proxy_ops;
++			break;
+ 		default:
+ 			break;
+ 		}
+diff --git a/sound/soc/qcom/qdsp6/q6dsp-lpass-ports.h b/sound/soc/qcom/qdsp6/q6dsp-lpass-ports.h
+index d8dde6dd0..37fcce21b 100644
+--- a/sound/soc/qcom/qdsp6/q6dsp-lpass-ports.h
++++ b/sound/soc/qcom/qdsp6/q6dsp-lpass-ports.h
+@@ -12,6 +12,7 @@ struct q6dsp_audio_port_dai_driver_config {
+ 	const struct snd_soc_dai_ops *q6tdm_ops;
+ 	const struct snd_soc_dai_ops *q6dma_ops;
+ 	const struct snd_soc_dai_ops *q6usb_ops;
++	const struct snd_soc_dai_ops *q6rt_proxy_ops;
+ };
+ 
+ struct snd_soc_dai_driver *q6dsp_audio_ports_set_config(struct device *dev,
+diff --git a/sound/soc/qcom/qdsp6/q6voice-dai.c b/sound/soc/qcom/qdsp6/q6voice-dai.c
+index 32d5472b7..5fa2e077a 100644
+--- a/sound/soc/qcom/qdsp6/q6voice-dai.c
++++ b/sound/soc/qcom/qdsp6/q6voice-dai.c
+@@ -271,6 +271,8 @@ static const struct snd_kcontrol_new voicemmode1_tx_mixer_controls[] = {
+ 		       q6voice_get_mixer_capture, q6voice_put_mixer_capture),
+ 	SOC_SINGLE_EXT("VA_CODEC_DMA_TX_0", VA_CODEC_DMA_TX_0, VOICEMMODE1, 1, 0,
+ 		       q6voice_get_mixer_capture, q6voice_put_mixer_capture),
++	SOC_SINGLE_EXT("RT_PROXY_TX_1", RT_PROXY_TX_1, VOICEMMODE1, 1, 0,
++		       q6voice_get_mixer_capture, q6voice_put_mixer_capture),
+ 	SOC_SINGLE_EXT("SEN_MI2S_TX", SENARY_MI2S_TX, VOICEMMODE1, 1, 0,
+ 		       q6voice_get_mixer_capture, q6voice_put_mixer_capture),
+ };
+@@ -317,6 +319,13 @@ static const struct snd_kcontrol_new rx_codec_dma_rx_0_mixer_controls[] = {
+ 		       q6voice_get_mixer_playback, q6voice_put_mixer_playback),
+ };
+ 
++static const struct snd_kcontrol_new rt_proxy_rx_1_mixer_controls[] = {
++	SOC_SINGLE_EXT("CS-Voice", RT_PROXY_RX_1, CS_VOICE, 1, 0,
++		       q6voice_get_mixer_playback, q6voice_put_mixer_playback),
++	SOC_SINGLE_EXT("VoiceMMode1", RT_PROXY_RX_1, VOICEMMODE1, 1, 0,
++		       q6voice_get_mixer_playback, q6voice_put_mixer_playback),
++};
++
+ static const struct snd_kcontrol_new senary_mi2s_rx_mixer_controls[] = {
+ 	SOC_SINGLE_EXT("CS-Voice", SENARY_MI2S_RX, CS_VOICE, 1, 0,
+ 		       q6voice_get_mixer_playback, q6voice_put_mixer_playback),
+@@ -356,6 +365,9 @@ static const struct snd_soc_dapm_widget q6voice_dapm_widgets[] = {
+ 	SND_SOC_DAPM_MIXER("RX_CODEC_DMA_RX_0 Voice Mixer", SND_SOC_NOPM, 0, 0,
+ 			   rx_codec_dma_rx_0_mixer_controls,
+ 			   ARRAY_SIZE(rx_codec_dma_rx_0_mixer_controls)),
++	SND_SOC_DAPM_MIXER("RT_PROXY_RX_1 Voice Mixer", SND_SOC_NOPM, 0, 0,
++			   rt_proxy_rx_1_mixer_controls,
++			   ARRAY_SIZE(rt_proxy_rx_1_mixer_controls)),
+ };
+ 
+ static const struct snd_soc_dapm_route q6voice_dapm_routes[] = {
+@@ -376,6 +388,7 @@ static const struct snd_soc_dapm_route q6voice_dapm_routes[] = {
+ 	{ "VoiceMMode1 Capture Mixer",	"TX_CODEC_DMA_TX_3",	"TX_CODEC_DMA_TX_3" },
+ 	{ "VoiceMMode1 Capture Mixer",	"TX_CODEC_DMA_TX_4",	"TX_CODEC_DMA_TX_4" },
+ 	{ "VoiceMMode1 Capture Mixer",	"VA_CODEC_DMA_TX_0",	"VA_CODEC_DMA_TX_0" },
++	{ "VoiceMMode1 Capture Mixer",	"RT_PROXY_TX_1",	"RT_PROXY_TX_1" },
+ 	{ "VoiceMMode1 Capture Mixer",	"SEN_MI2S_TX",	"SEN_MI2S_TX" },
+ 	{ "VOICEMMODE1_UL1",		NULL,		"VoiceMMode1 Capture Mixer" },
+ 
+@@ -393,6 +406,8 @@ static const struct snd_soc_dapm_route q6voice_dapm_routes[] = {
+ 	{ "SEN_MI2S_RX Voice Mixer",	"VoiceMMode1",	"VOICEMMODE1_DL1" },
+ 	{ "RX_CODEC_DMA_RX_0 Voice Mixer", "CS-Voice",	"CS-VOICE_DL1" },
+ 	{ "RX_CODEC_DMA_RX_0 Voice Mixer", "VoiceMMode1", "VOICEMMODE1_DL1" },
++	{ "RT_PROXY_RX_1 Voice Mixer", "CS-Voice",	"CS-VOICE_DL1" },
++	{ "RT_PROXY_RX_1 Voice Mixer", "VoiceMMode1", "VOICEMMODE1_DL1" },
+ 
+ 	{ "PRI_MI2S_RX",		NULL,		"PRI_MI2S_RX Voice Mixer" },
+ 	{ "SEC_MI2S_RX",		NULL,		"SEC_MI2S_RX Voice Mixer" },
+@@ -401,6 +416,7 @@ static const struct snd_soc_dapm_route q6voice_dapm_routes[] = {
+ 	{ "QUIN_MI2S_RX",		NULL,		"QUIN_MI2S_RX Voice Mixer" },
+ 	{ "SEN_MI2S_RX",		NULL,		"SEN_MI2S_RX Voice Mixer" },
+ 	{ "RX_CODEC_DMA_RX_0",		NULL,		"RX_CODEC_DMA_RX_0 Voice Mixer" },
++	{ "RT_PROXY_RX_1",		NULL,		"RT_PROXY_RX_1 Voice Mixer" },
+ };
+ 
+ static unsigned int q6voice_reg_read(struct snd_soc_component *component,
+-- 
+2.56.0
+
