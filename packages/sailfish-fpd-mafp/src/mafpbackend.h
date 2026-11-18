@@ -72,6 +72,8 @@ private:
     void runAuthenticate();
     void runEnumerate();
     void runRemove(uint32_t finger, bool all);
+    static const char *enrolReason(int code);
+    static Acquired enrolAcquired(int code);
     bool waitTouch(int mode, bool touched, double seconds);
     bool sleepStep();
 

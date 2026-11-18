@@ -117,6 +117,32 @@ bool MafpBackend::sleepStep()
     return !m_cancel;
 }
 
+/*
+ * Why do_enroll did not take a sample: the codes enroll_work in the stock library logs (mapped by
+ * kabouik for his Guix port, fxtec-pro1x-guix 834804d). -2988 is the common one: two touches on
+ * the same spot.
+ */
+const char *MafpBackend::enrolReason(int code)
+{
+    switch (code) {
+    case -2987: return "partial touch, cover the whole sensor";
+    case -2988: return "same area as before, move the finger a little";
+    case -2989: return "this finger is enrolled already";
+    case -3187: return "finger dirty";
+    case -3189: return "image not readable";
+    }
+    return "unknown code";
+}
+
+MafpBackend::Acquired MafpBackend::enrolAcquired(int code)
+{
+    switch (code) {
+    case -2987: return AcquiredPartial;
+    case -3187: return AcquiredImagerDirty;
+    default: return AcquiredInsufficient;
+    }
+}
+
 /* Poll detect_touch(mode) until it reports `touched`, a cancel or the timeout. */
 bool MafpBackend::waitTouch(int mode, bool touched, double seconds)
 {
@@ -204,8 +230,9 @@ void MafpBackend::runEnroll()
             emit acquired(AcquiredGood);
             emit enrollProgress(static_cast<float>(accepted) / MafpTa::ENROLL_SAMPLES);
         } else {
-            /* -2988 was the one rejection seen on 2026-11-09; the other codes are not mapped yet */
-            emit acquired(AcquiredInsufficient);
+            int code = err ? err : status;
+            qInfo() << "sample rejected:" << enrolReason(code);
+            emit acquired(enrolAcquired(code));
         }
         waitTouch(1, false, LIFT_TIMEOUT);
         if (m_cancel) {
