@@ -2,7 +2,7 @@
 # Build a fastboot-flashable image set for the Pro1-X in Jolla's layout: userdata becomes
 # the LVM physical volume of volume group "sailfish" with the logical volumes root and
 # home, packed as one Android sparse image (sailfish.img001), as Jolla's Sony images
-# (droid-config-sony-*, kickstart/pack/*/hybris) do. DRAFT 2026-10-30, not yet flashed.
+# (droid-config-sony-*, kickstart/pack/*/hybris) do. First flashed: Pro1-X #1, 2026-11.
 #
 #   sudo make-flashable-image.sh <rootfs.tar> <sfos-boot.img> <out dir> [root size MiB]
 #
@@ -53,6 +53,13 @@ UUID=$root_uuid  /      ext4  defaults,noatime  0 1
 UUID=$home_uuid  /home  ext4  defaults,noatime  0 2
 EOF
 
+# The RTC starts at 1970 until timed corrects it; systemd-fsck would meet times "in the future".
+printf '[options]\n\tbroken_system_clock = 1\n' > "$work/root/etc/e2fsck.conf"
+# Home unlocking is the device lock's job (Jolla's flow), not a console prompt.
+for u in systemd-ask-password-console.path systemd-ask-password-console.service; do
+  ln -sf /dev/null "$work/root/etc/systemd/system/$u"
+done
+
 echo "step: filesystem images"
 home_kib=$(du -sk "$work/home" | cut -f1)
 home_mib=$(( home_kib / 1024 * 13 / 10 + 512 ))   # content + 30 % + 512 MiB; grown at first boot
@@ -80,6 +87,10 @@ losetup -d "$loop"; loop=
 
 echo "step: sparse image"
 img2simg "$work/sailfish.img" "$out/sailfish.img001"
+# Round trip (kabouik's check): the sparse image must unpack to the same bytes.
+simg2img "$out/sailfish.img001" "$work/rt.raw"
+cmp "$work/rt.raw" "$work/sailfish.img" || { echo "sparse round trip differs"; exit 1; }
+rm -f "$work/rt.raw"
 cp "$bootimg" "$out/sfos-boot.img"
 cp "$here/flash-pro1x-sfos.sh" "$out/"
 (cd "$out" && md5sum sfos-boot.img sailfish.img001 > md5.lst)

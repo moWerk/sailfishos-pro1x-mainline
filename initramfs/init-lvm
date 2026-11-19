@@ -1,6 +1,6 @@
 #!/bin/busybox sh
 # SailfishOS on mainline, Pro1-X: initramfs for the SailfishOS LVM layout.
-# DRAFT (2026-10-30), not yet booted: see notes/lvm-encryption-plan.md.
+# First hardware boot: the image for the second Pro1-X (2026-11-19); notes/lvm-encryption-plan.md.
 #
 # 1. LVM: userdata is the physical volume of volume group "sailfish" with the
 #    logical volumes root and home, as on Jolla's own devices (hybris-initrd
@@ -12,6 +12,9 @@
 # (kernel updates, add-preinit-oneshot), picks the boot state (USER, ACT_DEAD for
 # charging while off) and then starts systemd, as hybris-initrd's normal-init does.
 # Any failure powers off: a reboot would come straight back here.
+# 3. Rescue (the image built with RESCUE=1 carries /rescue): the volume group is activated,
+#    nothing is mounted, and a root shell listens on telnet over USB networking
+#    (172.16.42.1, host side 172.16.42.2 by DHCP). It replaces the NixOS recovery boot.
 /bin/busybox --install -s /bin
 export PATH=/bin:/sbin:/usr/sbin:/usr/bin
 mkdir -p /proc /sys /dev /run /data /newroot
@@ -51,12 +54,52 @@ LVMCONF='devices { obtain_device_list_from_udev=0 use_devicesfile=0 }
 activation { udev_sync=0 udev_rules=0 verify_udev_operations=1 monitoring=0 }
 global { use_lvmpolld=0 }'
 mkdir -p /run/lvm /run/lock/lvm
+
+# USB networking through a configfs gadget (the functions are built into the kernel).
+usb_rescue() {
+  mount -t configfs configfs /sys/kernel/config 2>/dev/null
+  g=/sys/kernel/config/usb_gadget/rescue
+  mkdir -p $g/strings/0x409 $g/configs/c.1/strings/0x409 $g/functions/ncm.usb0 || return 1
+  echo 0x18d1 > $g/idVendor; echo 0xd001 > $g/idProduct
+  echo "Pro1-X rescue" > $g/strings/0x409/product
+  echo "SailfishOS" > $g/strings/0x409/manufacturer
+  echo ncm > $g/configs/c.1/strings/0x409/configuration
+  ln -s $g/functions/ncm.usb0 $g/configs/c.1/
+  udc=$(ls /sys/class/udc 2>/dev/null | head -1)
+  i=0
+  while [ -z "$udc" ] && [ $i -lt 50 ]; do i=$((i + 1)); sleep 0.2; udc=$(ls /sys/class/udc 2>/dev/null | head -1); done
+  [ -n "$udc" ] || return 1
+  echo "$udc" > $g/UDC
+  ifconfig usb0 172.16.42.1 netmask 255.255.255.0 up || return 1
+  mkdir -p /var/lib/misc /etc
+  printf 'start 172.16.42.2\nend 172.16.42.2\ninterface usb0\noption subnet 255.255.255.0\n' > /etc/udhcpd.conf
+  : > /var/lib/misc/udhcpd.leases
+  udhcpd /etc/udhcpd.conf
+  telnetd -l /bin/sh -b 172.16.42.1
+}
+
+if [ -e /rescue ]; then
+  mount -t debugfs none /sys/kernel/debug 2>/dev/null
+  [ -x /usr/sbin/lvm ] && lvm vgchange -a y --sysinit --config "$LVMCONF" sailfish > /dev/kmsg 2>&1
+  if usb_rescue; then log "rescue: telnet 172.16.42.1 (USB)"
+  else log "rescue: USB networking failed"; fi
+  # Stay up; the shell's "reboot -f" or "poweroff -f" ends it.
+  while :; do sleep 3600; done
+fi
+
 if [ -x /usr/sbin/lvm ] && lvm pvs --config "$LVMCONF" "$pv" >/dev/null 2>&1; then
   log "LVM on $pv"
   lvm vgchange -a y --sysinit --config "$LVMCONF" sailfish > /dev/kmsg 2>&1 \
     || fail "activate volume group sailfish"
   root=/dev/mapper/sailfish-root
   [ -b $root ] || fail "no $root"
+  # Check the root before mounting it, as hybris-initrd's root-mount does. 0-3: clean or
+  # repaired; 4 and up: errors left, logged, and the mount is still tried (a phone that
+  # boots can be repaired, one that powers off cannot).
+  if command -v e2fsck >/dev/null; then
+    e2fsck -p $root > /dev/kmsg 2>&1; rc=$?
+    log "e2fsck root: exit $rc"
+  fi
   mount -t ext4 -o rw,noatime $root /newroot || fail "mount $root"
   [ -x /newroot/sbin/preinit ] || fail "no /sbin/preinit"
   INIT=/sbin/preinit
