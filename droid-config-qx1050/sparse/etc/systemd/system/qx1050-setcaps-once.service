@@ -1,0 +1,17 @@
+[Unit]
+# The image's root is packed in a rootless user namespace, where file capabilities come out
+# bound to the build host's namespace (ping, timed, firejail and sandboxed apps then fail).
+# rpm sets them again from its database once, at the first boot of an image.
+Description=Set file capabilities from the rpm database (first boot of an image)
+DefaultDependencies=no
+After=local-fs.target
+Before=sysinit.target
+ConditionPathExists=!/var/lib/qx1050/setcaps.done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/rpm --setcaps -a
+ExecStartPost=/bin/sh -c 'mkdir -p /var/lib/qx1050 && touch /var/lib/qx1050/setcaps.done'
+
+[Install]
+WantedBy=sysinit.target
