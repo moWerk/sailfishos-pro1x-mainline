@@ -87,6 +87,10 @@ install -m 755 $P/packages/qx1050-voicecall/src/pro1x-voice-call $R/usr/bin/pro1
 # The steps top-menu toggle (no package yet).
 install -D -m 644 $P/packages/steps-topmenu/qml/StepsToggle.qml $R/usr/share/steps-topmenu/StepsToggle.qml
 install -D -m 644 $P/packages/steps-topmenu/entries/steps-topmenu.json $R/usr/share/jolla-settings/entries/steps-topmenu.json
+# The SSC sensors (proximity, light, motion) for sensorfw; hexagonrpcd is enabled by the sparse
+# tree. Without it mce takes proximity as covered and blanks the screen in every call.
+install -D -m 644 $P/packages/sensorfw-qt5-ssc/config/60-qx1050-ssc.conf \
+  $R/etc/sensorfw/sensord.conf.d/60-qx1050-ssc.conf
 cp $I/zypp-locks $R/etc/zypp/locks
 if [ -s $I/keyboard ]; then
   kb=$(cat $I/keyboard)
