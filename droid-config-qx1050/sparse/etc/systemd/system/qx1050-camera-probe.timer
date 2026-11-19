@@ -1,0 +1,13 @@
+[Unit]
+# The front sensor misses its probe at boot often enough that CAMSS hides both cameras.
+# The service retries the bind; started at boot it once crashed the phone into download mode
+# (2026-10-24, suspect: binding while CAMSS still probes). Started late instead, when CAMSS
+# has long finished: tested on the second Pro1-X, 2026-11-19.
+Description=Retry the front camera probe once the boot has settled
+
+[Timer]
+OnBootSec=40s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
