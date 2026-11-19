@@ -45,3 +45,34 @@ xkb_symbols "de" {
 
     include "level3(ralt_switch)"
 };
+
+// ANSI QWERTY keycaps (the second Pro1-X). The same scheme as "de": AltGr (the yellow Fn keys on
+// this kernel) gives the yellow legends. Taken from kabouik's notes on the same hardware
+// (fxtec-pro1x-guix device/input/keyd.conf): the key labelled ` ~ sends KEY_102ND, the key right
+// of L is ? and :, the key left of the up arrow is / and |, Fn+L ;  Fn+P \  Fn+/ |.
+// The number row and the rest follow the printed ANSI shift symbols; adapt where the keycaps
+// differ. Selected through dconf: layout = fxtec_vndr/pro1x, variant = us.
+partial alphanumeric_keys
+xkb_symbols "us" {
+    include "us"
+    name[Group1] = "F(x)tec Pro1X (ANSI)";
+
+    key <AE01> { [ 1, exclam,      exclam      ] };
+    key <AE02> { [ 2, at,          at          ] };
+    key <AE03> { [ 3, numbersign,  numbersign  ] };
+    key <AE04> { [ 4, dollar,      dollar      ] };
+    key <AE05> { [ 5, percent,     percent     ] };
+    key <AE06> { [ 6, asciicircum, asciicircum ] };
+    key <AE07> { [ 7, ampersand,   ampersand   ] };
+    key <AE08> { [ 8, asterisk,    asterisk    ] };
+    key <AE09> { [ 9, parenleft,   parenleft   ] };
+    key <AE10> { [ 0, parenright,  parenright  ] };
+
+    key <LSGT> { [ grave, asciitilde ] };
+    key <AC09> { [ l, L, semicolon ] };
+    key <AC10> { [ question, colon, semicolon ] };
+    key <AD10> { [ p, P, backslash ] };
+    key <AB10> { [ slash, bar, bar ] };
+
+    include "level3(ralt_switch)"
+};
