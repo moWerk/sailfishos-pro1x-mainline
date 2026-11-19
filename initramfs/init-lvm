@@ -80,6 +80,8 @@ usb_rescue() {
 
 if [ -e /rescue ]; then
   mount -t debugfs none /sys/kernel/debug 2>/dev/null
+  # telnetd needs pseudo-terminals
+  mkdir -p /dev/pts && mount -t devpts devpts /dev/pts
   [ -x /usr/sbin/lvm ] && lvm vgchange -a y --sysinit --config "$LVMCONF" sailfish > /dev/kmsg 2>&1
   if usb_rescue; then log "rescue: telnet 172.16.42.1 (USB)"
   else log "rescue: USB networking failed"; fi
