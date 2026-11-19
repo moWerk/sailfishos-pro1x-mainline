@@ -72,6 +72,16 @@ chroot $R /bin/sh -c "
   ssu mode 4
 "
 
+# Scriptlets that wrote with dd if=/dev/zero met no /dev in the build root and failed silently
+# (2>/dev/null). sailfish-devicelock-fpd's lock-code store: without it setting a lock code
+# fails with "authentication unavailable".
+f=$R/usr/share/lipstick/devicelock/.sfa_lock.enc
+if [ ! -f $f ]; then
+  dd if=/dev/zero of=$f bs=4096 count=1 2>/dev/null
+  chroot $R chown root:disk /usr/share/lipstick/devicelock/.sfa_lock.enc
+  chmod 0060 $f
+fi
+
 step "kernel modules and firmware"
 tar --no-same-owner -xf $I/modules.tar -C $R
 chmod -R u+w $R/lib/modules
