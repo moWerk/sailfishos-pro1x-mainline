@@ -94,9 +94,6 @@ for f in $P/droid-config-qx1050/kickstart/post/*; do chroot $R /bin/sh < $f; don
 cp -a --no-preserve=ownership $P/droid-config-qx1050/sparse/. $R/
 # Newer than its last package build (0.1-8): the Bluetooth bridge.
 install -m 755 $P/packages/qx1050-voicecall/src/pro1x-voice-call $R/usr/bin/pro1x-voice-call
-# The steps top-menu toggle (no package yet).
-install -D -m 644 $P/packages/steps-topmenu/qml/StepsToggle.qml $R/usr/share/steps-topmenu/StepsToggle.qml
-install -D -m 644 $P/packages/steps-topmenu/entries/steps-topmenu.json $R/usr/share/jolla-settings/entries/steps-topmenu.json
 # The SSC sensors (proximity, light, motion) for sensorfw; hexagonrpcd is enabled by the sparse
 # tree. Without it mce takes proximity as covered and blanks the screen in every call.
 install -D -m 644 $P/packages/sensorfw-qt5-ssc/config/60-qx1050-ssc.conf \
