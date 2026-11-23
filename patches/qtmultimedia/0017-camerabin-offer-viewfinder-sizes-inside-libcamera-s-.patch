@@ -1,0 +1,73 @@
+From 6e1913321e65c9ea135e5b9223f321e0126d8c4c Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Tue, 24 Nov 2026 00:06:11 +0100
+Subject: [PATCH] camerabin: offer viewfinder sizes inside libcamera's size
+ ranges, Release 18
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+libcamera's device provider gives the software ISP's output sizes as a
+range, and patch 0005 kept only its largest size. jolla-camera looks for
+screen width x aspect (1440x1080 at 4:3) and otherwise takes the largest
+size, so its photo viewfinder ran at 3992x3000 in the full 12 MP sensor
+mode: 10-20 fps and a GPU load that made the Sailfish gestures stutter.
+Offer 1440x1080, 1280x960, 1920x1080 and 1280x720 as well where the
+range covers them. On the mainline Pro1-X the photo viewfinder now runs
+at 1440x1080 from the sensor's 1984x1488 binned mode (with libcamera
+patch 0027), the shutter switches to 3992x3000 and back.
+
+Disclosure: LLMGD-3 · origin O1 (author reported the slow viewfinder, the model traced and wrote it, author confirmed it smoother on the phone)
+LLMGD: v0.3; assurance=A3; flags=U,T; origin=O1; origin_headline=O1; scope=qtmultimedia; graded-by=claude-opus-5-5; retrieval=none
+---
+ rpm/qtmultimedia.spec                         |  2 +-
+ .../gstreamer/camerabin/camerabinsession.cpp  | 20 +++++++++++++++++++
+ 2 files changed, 21 insertions(+), 1 deletion(-)
+
+diff --git a/rpm/qtmultimedia.spec b/rpm/qtmultimedia.spec
+index 4e9f48e8..c1be4c7f 100644
+--- a/rpm/qtmultimedia.spec
++++ b/rpm/qtmultimedia.spec
+@@ -1,7 +1,7 @@
+ Name:       qt5-qtmultimedia
+ Summary:    Qt Multimedia module
+ Version:    5.6.2+v4l.20261024000000.qx1050
+-Release:    17%{?dist}
++Release:    18%{?dist}
+ License:    (LGPLv2 or LGPLv3) with exception or GPLv3 or Qt Commercial
+ URL:        https://www.qt.io/
+ Source0:    %{name}-%{version}.tar.bz2
+diff --git a/src/plugins/gstreamer/camerabin/camerabinsession.cpp b/src/plugins/gstreamer/camerabin/camerabinsession.cpp
+index aff8f731..e68fce7b 100644
+--- a/src/plugins/gstreamer/camerabin/camerabinsession.cpp
++++ b/src/plugins/gstreamer/camerabin/camerabinsession.cpp
+@@ -1346,6 +1346,26 @@ static GstCaps *libcameraDeviceCaps(GstElement *source)
+                 const GValue *w = gst_structure_get_value(s, "width");
+                 const GValue *h = gst_structure_get_value(s, "height");
+                 if (w && h && GST_VALUE_HOLDS_INT_RANGE(w) && GST_VALUE_HOLDS_INT_RANGE(h)) {
++                    /*
++                     * The software ISP scales to any size in the range. Besides the
++                     * largest, offer the viewfinder sizes applications look for:
++                     * jolla-camera takes screen width x aspect (1440x1080 at 4:3 on a
++                     * 1080 px wide screen) and otherwise the largest size, which ran the
++                     * photo viewfinder in the full sensor mode at 10-20 fps.
++                     */
++                    static const int sizes[][2] = {
++                        { 1440, 1080 }, { 1280, 960 }, { 1920, 1080 }, { 1280, 720 }
++                    };
++                    for (const auto &size : sizes) {
++                        if (size[0] < gst_value_get_int_range_min(w) || size[0] > gst_value_get_int_range_max(w)
++                                || size[1] < gst_value_get_int_range_min(h) || size[1] > gst_value_get_int_range_max(h))
++                            continue;
++                        GstStructure *v = gst_structure_copy(s);
++                        gst_structure_set(v, "width", G_TYPE_INT, size[0], "height", G_TYPE_INT, size[1], NULL);
++                        if (!gst_structure_has_field(v, "framerate"))
++                            gst_structure_set(v, "framerate", GST_TYPE_FRACTION_RANGE, 1, 1, 30, 1, NULL);
++                        gst_caps_append_structure(result, v);
++                    }
+                     gst_structure_set(s,
+                                       "width", G_TYPE_INT, gst_value_get_int_range_max(w),
+                                       "height", G_TYPE_INT, gst_value_get_int_range_max(h),
+-- 
+2.56.0
+

@@ -1,0 +1,56 @@
+From 8c81f4b10b55a09943fe06f630736f718cd99b95 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Tue, 24 Nov 2026 00:13:16 +0100
+Subject: [PATCH] pipeline: simple: prefer the sensor mode with the stream's
+ aspect ratio
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The simple pipeline took the smallest sensor mode that covers the
+streams, comparing sizes width first: a 1440x1080 viewfinder came from
+the 1984x1080 (16:9) mode of the Pro1-X's IMX582 and lost a quarter of
+the field of view against the 4:3 photo, although the sensor has a
+1984x1488 4:3 binned mode. Among the modes that cover the streams, take
+the one closest in aspect ratio to the largest processed stream first,
+then the smallest. 1920x1080 still takes the 1984x1080 mode, 3992x3000
+the full one.
+
+Disclosure: LLMGD-3 · origin O1 (author reported a slow photo viewfinder; the model traced it and wrote the change; author confirmed it smoother on the phone)
+LLMGD: v0.3; assurance=A3; flags=U,T; origin=O1; origin_headline=O1; scope=libcamera; graded-by=claude-opus-5-5; retrieval=none
+---
+ src/libcamera/pipeline/simple/simple.cpp | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/src/libcamera/pipeline/simple/simple.cpp b/src/libcamera/pipeline/simple/simple.cpp
+index 3483b595..4a5f3325 100644
+--- a/src/libcamera/pipeline/simple/simple.cpp
++++ b/src/libcamera/pipeline/simple/simple.cpp
+@@ -1246,7 +1246,23 @@ CameraConfiguration::Status SimpleCameraConfiguration::validate()
+ 		    maxOutputSize.height >= maxProcessedStreamSize.height &&
+ 		    captureSize.width >= maxRawStreamSize.width &&
+ 		    captureSize.height >= maxRawStreamSize.height) {
+-			if (!pipeConfig_ || captureSize < pipeConfig_->captureSize)
++			/*
++			 * Prefer the sensor mode closest in aspect ratio to the
++			 * largest processed stream, then the smallest: a 4:3
++			 * viewfinder taken from a 16:9 mode loses field of view
++			 * against the 4:3 photo, where a 4:3 binned mode keeps it.
++			 */
++			auto ratioDistance = [&](const Size &size) {
++				if (maxProcessedStreamSize.isNull() || size.isNull())
++					return 0.0;
++				const double want = static_cast<double>(maxProcessedStreamSize.width) /
++						    maxProcessedStreamSize.height;
++				return std::abs(static_cast<double>(size.width) / size.height - want);
++			};
++			const double distance = ratioDistance(captureSize);
++			const double best = pipeConfig_ ? ratioDistance(pipeConfig_->captureSize) : 0.0;
++			if (!pipeConfig_ || distance < best - 0.01 ||
++			    (std::abs(distance - best) <= 0.01 && captureSize < pipeConfig_->captureSize))
+ 				pipeConfig_ = pipeConfig;
+ 		}
+ 
+-- 
+2.56.0
+
