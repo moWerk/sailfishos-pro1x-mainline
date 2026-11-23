@@ -1,0 +1,107 @@
+From 9042be582fd371b4f5024faeee8a389bc9fe9dd1 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Mon, 23 Nov 2026 23:32:16 +0100
+Subject: [PATCH] camerabin: imageExposed without photo-capture-start, Release
+ 17
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+camerabin emitted imageExposed only on the photo-capture-start bus
+message, which droidcamsrc posts and wrappercamerabinsrc with
+libcamerasrc does not: on the mainline Pro1-X jolla-camera took photos
+without the shutter sound and the capture animation, both of which hang
+on imageExposed. The captured frame reaching the encoder probe is the
+exposure; send imageExposed there, once per request (the
+photo-capture-start path marks the request too, so droid sources keep
+their single signal).
+
+Disclosure: LLMGD-3 · origin O1 (author reported no shutter feedback; the model found the cause and wrote the change; author confirmed the shutter sound on the phone)
+LLMGD: v0.3; assurance=A3; flags=U,T; origin=O1; origin_headline=O1; scope=qtmultimedia; graded-by=claude-opus-5-5; retrieval=none
+---
+ rpm/qtmultimedia.spec                         |  2 +-
+ .../camerabin/camerabinimagecapture.cpp       | 19 ++++++++++++++++++-
+ .../camerabin/camerabinimagecapture.h         |  3 +++
+ 3 files changed, 22 insertions(+), 2 deletions(-)
+
+diff --git a/rpm/qtmultimedia.spec b/rpm/qtmultimedia.spec
+index c24df405..4e9f48e8 100644
+--- a/rpm/qtmultimedia.spec
++++ b/rpm/qtmultimedia.spec
+@@ -1,7 +1,7 @@
+ Name:       qt5-qtmultimedia
+ Summary:    Qt Multimedia module
+ Version:    5.6.2+v4l.20261024000000.qx1050
+-Release:    16%{?dist}
++Release:    17%{?dist}
+ License:    (LGPLv2 or LGPLv3) with exception or GPLv3 or Qt Commercial
+ URL:        https://www.qt.io/
+ Source0:    %{name}-%{version}.tar.bz2
+diff --git a/src/plugins/gstreamer/camerabin/camerabinimagecapture.cpp b/src/plugins/gstreamer/camerabin/camerabinimagecapture.cpp
+index 35fb4951..9f8ff311 100644
+--- a/src/plugins/gstreamer/camerabin/camerabinimagecapture.cpp
++++ b/src/plugins/gstreamer/camerabin/camerabinimagecapture.cpp
+@@ -68,10 +68,11 @@ CameraBinImageCapture::CameraBinImageCapture(CameraBinSession *session)
+     , m_jpegEncoderElement(0)
+     , m_metadataMuxerElement(0)
+     , m_requestId(0)
++    , m_exposedRequest(0)
+     , m_ready(false)
+ {
+     connect(m_session, SIGNAL(statusChanged(QCamera::Status)), SLOT(updateState()));
+-    connect(m_session, SIGNAL(imageExposed(int)), this, SIGNAL(imageExposed(int)));
++    connect(m_session, SIGNAL(imageExposed(int)), this, SLOT(sessionImageExposed(int)));
+     connect(m_session, SIGNAL(imageCaptured(int,QImage)), this, SIGNAL(imageCaptured(int,QImage)));
+     connect(m_session->resourcePolicy(), SIGNAL(canCaptureChanged()), this, SLOT(updateState()));
+     connect(m_session, SIGNAL(handleReadyForCaptureChanged(bool)), this, SLOT(updateState()));
+@@ -215,10 +216,26 @@ void CameraBinImageCapture::EncoderProbe::probeCaps(GstCaps *caps)
+ #endif
+ }
+ 
++void CameraBinImageCapture::sessionImageExposed(int requestId)
++{
++    if (m_exposedRequest.fetchAndStoreOrdered(requestId) != requestId)
++        emit imageExposed(requestId);
++}
++
+ bool CameraBinImageCapture::EncoderProbe::probeBuffer(GstBuffer *buffer)
+ {
+     CameraBinSession * const session = capture->m_session;
+ 
++    /*
++     * Sources without the photography interface (wrappercamerabinsrc with
++     * libcamerasrc) post no photo-capture-start, so applications never got
++     * imageExposed: jolla-camera's shutter sound and capture animation hang
++     * on it. The captured frame reaching the encoder is the exposure.
++     */
++    const int id = capture->m_requestId;
++    if (capture->m_exposedRequest.fetchAndStoreOrdered(id) != id)
++        QMetaObject::invokeMethod(capture, "imageExposed", Qt::QueuedConnection, Q_ARG(int, id));
++
+ #ifdef DEBUG_CAPTURE
+     qDebug() << "Uncompressed buffer probe";
+ #endif
+diff --git a/src/plugins/gstreamer/camerabin/camerabinimagecapture.h b/src/plugins/gstreamer/camerabin/camerabinimagecapture.h
+index 12d9d4ce..24c3b958 100644
+--- a/src/plugins/gstreamer/camerabin/camerabinimagecapture.h
++++ b/src/plugins/gstreamer/camerabin/camerabinimagecapture.h
+@@ -67,6 +67,7 @@ public:
+ 
+ private slots:
+     void updateState();
++    void sessionImageExposed(int requestId);
+ 
+ private:
+ #if GST_CHECK_VERSION(1,0,0)
+@@ -109,6 +110,8 @@ private:
+     int m_bytesPerLine;
+ #endif
+     int m_requestId;
++    /* The request imageExposed was sent for (photo-capture-start or the encoder probe) */
++    QAtomicInt m_exposedRequest;
+     bool m_ready;
+ };
+ 
+-- 
+2.56.0
+
