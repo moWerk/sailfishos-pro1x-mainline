@@ -1,4 +1,4 @@
-From b0911d89232265ef71646343d0b578852f8110f2 Mon Sep 17 00:00:00 2001
+From 9c3cacde735fa5219982ea0561732da0064e5b7f Mon Sep 17 00:00:00 2001
 From: moWerk <mo@mowerk.net>
 Date: Mon, 23 Nov 2026 21:53:39 +0100
 Subject: [PATCH 26/26] ipa: simple: agc: settled band relative to the target,

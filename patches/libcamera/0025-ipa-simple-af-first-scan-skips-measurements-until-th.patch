@@ -1,24 +1,28 @@
-From a77817b0fa6244ffbad3fe68d02cb7e2ef615d0a Mon Sep 17 00:00:00 2001
+From 4b13165f23fc22770eaf53bd358404bd709e3ba1 Mon Sep 17 00:00:00 2001
 From: moWerk <mo@mowerk.net>
 Date: Mon, 23 Nov 2026 21:25:36 +0100
-Subject: [PATCH 25/26] ipa: simple: af: first scan waits for the exposure to
- settle
+Subject: [PATCH 25/26] ipa: simple: af: first scan skips measurements until
+ the exposure is steady
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
 
-In low light the AGC raises the gain while the first scan runs; the
-noise grows with it and inflates the sharpness value, so later lens
-positions look sharper and the scan locks off the peak. On the Pro1-X,
-a chart darkened right after a bright start: the lens locked at 561
-instead of about 513 and the photo was blurred (Laplacian variance of
-the star 54); with the wait 98 and sharp, both at gain 16. In good
-light the exposure is settled at once and the wait costs nothing
-(3.1 s to focus with and without).
+Pro1-X, a chart darkened right after a bright start, 12 MP mode: without
+this the first scan locked at lens 947 and the photo was blurred (the
+peak is near 513); with it the scan locked at 561 and the photo was sharp
+(Laplacian variance of the Siemens star 54 -> 93-98, both at gain 16).
+
+What the AF debug log shows: in the 12 MP mode the wait ends after one
+measurement (the AGC sits at its gain and exposure limits there, so the
+exposure does not move), in the 1280x960 viewfinder mode after four. So
+in the 12 MP case it is skipping the first measurement after the start
+that keeps the scan on track; why that measurement misleads it is
+inferred, not traced (it is likely taken with the previous scene's
+exposure). No cost in good light: 3.1 s to focus with and without.
 
 Tuning key "waitForExposure": before the first scan after a configure,
-skip measurements while the exposure (time x gain) moved more than 8 %
-since the last one, at most 12 measurements (about 2 s).
+skip the first measurement and any while the exposure (time x gain)
+moved more than 8 % since the previous one, at most 12.
 
 Disclosure: LLMGD-2 · origin O1 (the model measured the camera on a test chart overnight with the author's go, wrote and tested the change on the device)
 LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=libcamera; graded-by=claude-opus-5-5; retrieval=none

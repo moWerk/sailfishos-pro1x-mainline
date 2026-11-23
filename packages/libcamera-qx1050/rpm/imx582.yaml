@@ -64,5 +64,6 @@ algorithms:
       # reads as lost focus; a refocus looks around the current lens position first.
       normaliseVariance: true
       localRefocus: true
-      # Patch 0025: the first scan waits for the exposure, or low light locks off the peak.
+      # Patch 0025: the first scan skips its first measurement(s) until the exposure is steady;
+      # without it a dark scene after a bright start locked at 947 instead of ~513 (blurred).
       waitForExposure: true
