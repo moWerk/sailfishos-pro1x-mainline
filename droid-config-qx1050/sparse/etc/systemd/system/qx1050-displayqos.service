@@ -1,0 +1,18 @@
+[Unit]
+# Lists scrolled at 30 fps while the little cores entered their power collapse between frames; stock
+# Android holds a CPU latency vote while the display is on. This does the same for CPU 0-3 (600 us
+# resume latency) while mce reports the display on or dimmed. Measured 2026-11-23: median frame
+# interval 33 -> 17 ms, late frames 68-78 % -> 29-32 %. Display off: no constraint.
+Description=Display-on CPU latency constraint for the little cores (smooth scrolling)
+After=mce.service
+
+[Service]
+Environment=DISPLAYQOS_CPUS=0,1,2,3
+Environment=DISPLAYQOS_LATENCY_US=600
+ExecStart=/usr/bin/python3 /usr/bin/droid/qx1050-displayqos.py
+ExecStopPost=/bin/sh -c "for c in 0 1 2 3; do echo 0 > /sys/devices/system/cpu/cpu$$c/power/pm_qos_resume_latency_us; done"
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
