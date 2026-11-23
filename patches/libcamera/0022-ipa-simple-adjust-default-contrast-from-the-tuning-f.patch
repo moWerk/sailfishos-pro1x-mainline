@@ -1,7 +1,7 @@
-From d351716ace8912117bd14c4b0777ad3eb8638ea1 Mon Sep 17 00:00:00 2001
+From 0ebbd3a1860b2598c274accbbf4d3534866ea1ab Mon Sep 17 00:00:00 2001
 From: moWerk <mo@mowerk.net>
 Date: Mon, 23 Nov 2026 21:17:17 +0100
-Subject: [PATCH 22/24] ipa: simple: adjust: default contrast from the tuning
+Subject: [PATCH 22/26] ipa: simple: adjust: default contrast from the tuning
  file
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8

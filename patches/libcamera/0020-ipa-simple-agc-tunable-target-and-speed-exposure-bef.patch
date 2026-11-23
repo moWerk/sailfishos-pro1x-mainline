@@ -1,7 +1,7 @@
-From ae1135741c54d34f8594477a956f3b79fc0d7bda Mon Sep 17 00:00:00 2001
+From 0df916172db372096d507c949cf7ed1b588770fb Mon Sep 17 00:00:00 2001
 From: moWerk <mo@mowerk.net>
 Date: Mon, 23 Nov 2026 21:17:17 +0100
-Subject: [PATCH 20/24] ipa: simple: agc: tunable target and speed, exposure
+Subject: [PATCH 20/26] ipa: simple: agc: tunable target and speed, exposure
  before gain
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -12,7 +12,8 @@ against the chart's sRGB values, 2026-11-23):
 
 - The mean sample value target of 2.5 bins sits on the linear histogram:
   about 50 % linear, sRGB 186 for a mid grey; the chart's 128 grey came out
-  at 139-181. Tuning key "target" (default 2.5); 1.6 puts it at 126.
+  at 139-181. Tuning key "target" (default 2.5); 1.5 puts it at 130
+  (with the band of patch 0026; the gain steps make it 120 or 130).
 - The step is relative to the target, so a lower target does not slow the
   loop (1.6 left a dark start at most 0.6 below it: 2.4 % per step).
 - With nearly everything in the lowest or highest bin the MSV no longer

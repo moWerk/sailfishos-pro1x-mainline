@@ -1,7 +1,7 @@
 # libcamera 0.7 software ISP tuning for the Pro1X imx582.
 # Measured 2026-11-23 on a ColorChecker/grey ramp/Siemens star chart (CIEDE2000, flat-field corrected):
-# this file with libcamera patches 0020-0024 took the colour error from 8.7 to 3.7, chroma from 0.50
-# to 0.93 of the reference, a 128 grey from 139 to 126; the exposure settles from dark in ~3 s.
+# this file with libcamera patches 0020-0026 took the colour error from 8.7 to 3.7, chroma from 0.50
+# to 0.93 of the reference, a 128 grey from 139 to 130; the exposure settles from dark in ~3 s.
 version: 1
 algorithms:
   - BlackLevel:
@@ -38,8 +38,8 @@ algorithms:
       contrast: 1.1
   - Agc:
       # Patch 0020. Target in bins (1..5) of the linear histogram: 2.5 put a 128 grey at 139-181,
-      # 1.6 at 126.
-      target: 1.6
+      # 1.5 at 130 from either side (patch 0026; the gain steps make it 120 or 130).
+      target: 1.5
       # Settle from a dark start in ~3 s (0.04/0.15: still rising after 30 s).
       speed: 0.12
       maxStep: 0.4
@@ -64,3 +64,5 @@ algorithms:
       # reads as lost focus; a refocus looks around the current lens position first.
       normaliseVariance: true
       localRefocus: true
+      # Patch 0025: the first scan waits for the exposure, or low light locks off the peak.
+      waitForExposure: true

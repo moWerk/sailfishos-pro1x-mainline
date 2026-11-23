@@ -1,0 +1,106 @@
+From a77817b0fa6244ffbad3fe68d02cb7e2ef615d0a Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Mon, 23 Nov 2026 21:25:36 +0100
+Subject: [PATCH 25/26] ipa: simple: af: first scan waits for the exposure to
+ settle
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+In low light the AGC raises the gain while the first scan runs; the
+noise grows with it and inflates the sharpness value, so later lens
+positions look sharper and the scan locks off the peak. On the Pro1-X,
+a chart darkened right after a bright start: the lens locked at 561
+instead of about 513 and the photo was blurred (Laplacian variance of
+the star 54); with the wait 98 and sharp, both at gain 16. In good
+light the exposure is settled at once and the wait costs nothing
+(3.1 s to focus with and without).
+
+Tuning key "waitForExposure": before the first scan after a configure,
+skip measurements while the exposure (time x gain) moved more than 8 %
+since the last one, at most 12 measurements (about 2 s).
+
+Disclosure: LLMGD-2 · origin O1 (the model measured the camera on a test chart overnight with the author's go, wrote and tested the change on the device)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=libcamera; graded-by=claude-opus-5-5; retrieval=none
+---
+ src/ipa/simple/algorithms/af.cpp | 22 ++++++++++++++++++++++
+ src/ipa/simple/algorithms/af.h   |  9 +++++++++
+ 2 files changed, 31 insertions(+)
+
+diff --git a/src/ipa/simple/algorithms/af.cpp b/src/ipa/simple/algorithms/af.cpp
+index 76bab17b..f05ae65a 100644
+--- a/src/ipa/simple/algorithms/af.cpp
++++ b/src/ipa/simple/algorithms/af.cpp
+@@ -7,6 +7,8 @@
+ 
+ #include "af.h"
+ 
++#include <cmath>
++
+ #include <libcamera/base/log.h>
+ 
+ #include <libcamera/control_ids.h>
+@@ -36,6 +38,7 @@ int Af::init(IPAContext &context, const ValueNode &tuningData)
+ 	 */
+ 	normalise_ = tuningData["normaliseVariance"].get<bool>(false);
+ 	params.localRefocus = tuningData["localRefocus"].get<bool>(false);
++	waitForExposure_ = tuningData["waitForExposure"].get<bool>(false);
+ 	afAlgo_.setParameters(params);
+ 
+ 	/* Informs that lens controls can get focus data */
+@@ -57,6 +60,9 @@ int Af::init(IPAContext &context, const ValueNode &tuningData)
+ 
+ int Af::configure(IPAContext &context, const IPAConfigInfo &configInfo)
+ {
++	scanStarted_ = false;
++	lastExposure_ = 0;
++	waited_ = 0;
+ 	afAlgo_.configure(context.activeState.af, configInfo.lensControls);
+ 
+ 	return 0;
+@@ -113,6 +119,22 @@ void Af::process(IPAContext &context,
+ 		variance = variance / (mean * mean) * 1000000.0;
+ 	}
+ 	LOG(IPASoftAf, Debug) << "Focus stats: " << variance;
++	if (waitForExposure_ && !scanStarted_) {
++		/* Up to 12 measurements (about 2 s), until it moves less than 8 % */
++		const double total = context.activeState.agc.exposure *
++				     context.activeState.agc.again;
++		const bool moving = lastExposure_ <= 0 ||
++				    std::abs(total / lastExposure_ - 1.0) > 0.08;
++		lastExposure_ = total;
++		if (moving && ++waited_ < 12) {
++			metadata.set(controls::AfState, controls::AfStateScanning);
++			return;
++		}
++		scanStarted_ = true;
++		LOG(IPASoftAf, Debug) << "Exposure settled after " << waited_
++				      << " measurements, scanning";
++	}
++
+ 	if (!(mode_ == controls::AfModeAuto && context.activeState.af.stable))
+ 		afAlgo_.process(context.activeState.af, variance);
+ 
+diff --git a/src/ipa/simple/algorithms/af.h b/src/ipa/simple/algorithms/af.h
+index 6bc4c408..8a17889a 100644
+--- a/src/ipa/simple/algorithms/af.h
++++ b/src/ipa/simple/algorithms/af.h
+@@ -43,6 +43,15 @@ private:
+ 	int32_t mode_ = controls::AfModeContinuous;
+ 	/* Divide the sharpness by the squared mean brightness (tuning "normaliseVariance") */
+ 	bool normalise_ = false;
++	/*
++	 * Before the first scan, wait while the exposure still moves
++	 * (tuning "waitForExposure"): in low light the gain rises during the
++	 * scan, the noise with it, and later lens positions look sharper.
++	 */
++	bool waitForExposure_ = false;
++	bool scanStarted_ = false;
++	double lastExposure_ = 0;
++	unsigned int waited_ = 0;
+ };
+ 
+ } /* namespace ipa::soft::algorithms */
+-- 
+2.56.0
+

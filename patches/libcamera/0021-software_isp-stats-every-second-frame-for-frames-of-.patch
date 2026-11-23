@@ -1,7 +1,7 @@
-From c4f42e32fc1061e5906c6330b01bda1550354acc Mon Sep 17 00:00:00 2001
+From f2349c9dc6083b4f78b47d97ed1675e8e2ab0ef2 Mon Sep 17 00:00:00 2001
 From: moWerk <mo@mowerk.net>
 Date: Mon, 23 Nov 2026 21:17:17 +0100
-Subject: [PATCH 21/24] software_isp: stats every second frame for frames of 7
+Subject: [PATCH 21/26] software_isp: stats every second frame for frames of 7
  MP or more
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8

@@ -1,7 +1,7 @@
-From 9d2abea81c6f35c0db0ae8b6c4d10dc47c00142d Mon Sep 17 00:00:00 2001
+From 8cb46e38533e2c8574b91a32ef3a23ca943dc1cb Mon Sep 17 00:00:00 2001
 From: moWerk <mo@mowerk.net>
 Date: Mon, 23 Nov 2026 21:17:17 +0100
-Subject: [PATCH 23/24] ipa: libipa: af: local refocus before a full scan
+Subject: [PATCH 23/26] ipa: libipa: af: local refocus before a full scan
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit

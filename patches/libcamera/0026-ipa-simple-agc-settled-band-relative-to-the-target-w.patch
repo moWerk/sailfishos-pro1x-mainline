@@ -1,0 +1,62 @@
+From b0911d89232265ef71646343d0b578852f8110f2 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Mon, 23 Nov 2026 21:53:39 +0100
+Subject: [PATCH 26/26] ipa: simple: agc: settled band relative to the target,
+ with hysteresis
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The AGC stops inside +-0.2 bins of its target, from whichever side it
+comes. At the default target 2.5 that is +-8 %; at 1.6 (patch 0020) it
+became +-12.5 %, and on the Pro1-X a 128 grey settled at 121 from a dark
+start but at 153 from a bright one. Scale the band with the target, as
+the step already is, and once outside it correct down to half the band,
+so both sides end at the same point.
+
+Disclosure: LLMGD-2 · origin O1 (the model measured the camera on a test chart overnight with the author's go, wrote and tested the change on the device)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=libcamera; graded-by=claude-opus-5-5; retrieval=none
+---
+ src/ipa/simple/algorithms/agc.cpp | 11 ++++++++++-
+ src/ipa/simple/algorithms/agc.h   |  2 ++
+ 2 files changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/src/ipa/simple/algorithms/agc.cpp b/src/ipa/simple/algorithms/agc.cpp
+index 8f5150af..c82150d3 100644
+--- a/src/ipa/simple/algorithms/agc.cpp
++++ b/src/ipa/simple/algorithms/agc.cpp
+@@ -170,8 +170,17 @@ void Agc::updateExposure(IPAContext &context, IPAFrameContext &frameContext,
+ 
+ 	double error = target - exposureMSV;
+ 
+-	if (std::abs(error) <= kExposureSatisfactory)
++	/*
++	 * The band scales with the target like the step does. Once outside
++	 * it, keep correcting down to half the band: stopping at the edge
++	 * left a 128 grey at 130 from below and 149 from above.
++	 */
++	const double band = kExposureSatisfactory * target / kExposureOptimal;
++	if (std::abs(error) <= (converging_ ? band / 2 : band)) {
++		converging_ = false;
+ 		return;
++	}
++	converging_ = true;
+ 
+ 	/*
+ 	 * Compute a proportional correction factor. The sign of the error
+diff --git a/src/ipa/simple/algorithms/agc.h b/src/ipa/simple/algorithms/agc.h
+index 90d841eb..71b41ca9 100644
+--- a/src/ipa/simple/algorithms/agc.h
++++ b/src/ipa/simple/algorithms/agc.h
+@@ -45,6 +45,8 @@ private:
+ 	float maxStep_ = 0.15f;
+ 	/* Frame of the last exposure update: one per 4 frames, whatever carries stats */
+ 	std::optional<uint32_t> lastFrame_;
++	/* Outside the band: correct down to half of it (hysteresis) */
++	bool converging_ = false;
+ };
+ 
+ } /* namespace ipa::soft::algorithms */
+-- 
+2.56.0
+

@@ -1,7 +1,7 @@
-From 20847a8f546ca021cfa6a5acfd14311f90d10a91 Mon Sep 17 00:00:00 2001
+From caef7e85d7200bcb9fc176436935c2714dd5bb1a Mon Sep 17 00:00:00 2001
 From: moWerk <mo@mowerk.net>
 Date: Mon, 23 Nov 2026 21:17:17 +0100
-Subject: [PATCH 24/24] ipa: simple: af: brightness-normalised sharpness, local
+Subject: [PATCH 24/26] ipa: simple: af: brightness-normalised sharpness, local
  refocus
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
