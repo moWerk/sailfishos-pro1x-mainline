@@ -1,0 +1,119 @@
+From a996a3df354b5fe9c08055dd4b26a5f90f7b9be2 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Mon, 23 Nov 2026 15:14:36 +0100
+Subject: [PATCH] Input: pro1x-aw9523-kbd: no matrix scan across system suspend
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The scan work is not freezable and talks I2C. A key pressed as the
+system went to sleep queued it after the I2C controller had suspended
+(it suspends after this child): i2c-core warned about a transfer on a
+suspended adapter, the work hit "Unbalanced enable for IRQ" and the
+keyboard stayed dead until the driver was rebound (Pro1-X, 7.3,
+2026-11-23).
+
+Refuse suspend while a scan is pending (the PM core retries), and let a
+key pressed while suspended only mask the IRQ and report a wakeup event;
+resume runs its scan. disable_irq() fences the hardirq handler while the
+flags change. Whether the stuck state came from the leaked IRQ disable
+depth or from INT left asserted is inferred from the log, not traced.
+
+Disclosure: LLMGD-2 · origin O1 (the model found and wrote the fix)
+LLMGD: v0.3; assurance=A2; flags=none; origin=O1; origin_headline=O1; scope=driver; graded-by=claude-opus-5-5; retrieval=none
+---
+ drivers/input/keyboard/pro1x-aw9523-kbd.c | 41 +++++++++++++++++++++--
+ 1 file changed, 38 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/input/keyboard/pro1x-aw9523-kbd.c b/drivers/input/keyboard/pro1x-aw9523-kbd.c
+index 1375b281f..9d7b42b12 100644
+--- a/drivers/input/keyboard/pro1x-aw9523-kbd.c
++++ b/drivers/input/keyboard/pro1x-aw9523-kbd.c
+@@ -82,6 +82,8 @@ struct pro1x_kbd {
+ 	unsigned int settle;
+ 	bool stock;
+ 	bool irq_wake;
++	bool suspended;		/* no scan work: the I2C bus may be suspended */
++	bool masked;		/* IRQ masked by the handler, a scan owes the enable */
+ 	u8 down[NUM_LINES];	/* per column: rows with a sent key-down */
+ };
+ 
+@@ -270,6 +272,7 @@ static void pro1x_kbd_work(struct work_struct *work)
+ 	}
+ 
+ 	/* The level triggered INT re-fires if anything changed since the read. */
++	kb->masked = false;
+ 	enable_irq(kb->client->irq);
+ }
+ 
+@@ -278,7 +281,12 @@ static irqreturn_t pro1x_kbd_irq(int irq, void *data)
+ 	struct pro1x_kbd *kb = data;
+ 
+ 	disable_irq_nosync(irq);
+-	schedule_delayed_work(&kb->work, 0);
++	kb->masked = true;
++	/* While suspended the I2C bus may be down: resume runs the scan. */
++	if (kb->suspended)
++		pm_wakeup_event(&kb->client->dev, 0);
++	else
++		schedule_delayed_work(&kb->work, 0);
+ 
+ 	return IRQ_HANDLED;
+ }
+@@ -407,11 +415,30 @@ static int pro1x_kbd_probe(struct i2c_client *client)
+ 	return 0;
+ }
+ 
++/*
++ * The scan work is not freezable and talks I2C. Run after the bus controller
++ * had suspended (it suspends after this child), it failed with "Unbalanced
++ * enable for IRQ" and the keyboard stayed dead until the driver was rebound
++ * (seen on a Pro1-X, 2026-11-23). So no scan may run between suspend and
++ * resume: suspend is refused while one is pending (a key held or just
++ * pressed; the PM core retries), and a key that wakes the system only masks
++ * the IRQ, its scan runs on resume. disable_irq() fences the hardirq handler
++ * while the flags change.
++ */
+ static int pro1x_kbd_suspend(struct device *dev)
+ {
+ 	struct pro1x_kbd *kb = dev_get_drvdata(dev);
++	int irq = kb->client->irq;
+ 
+-	if (device_may_wakeup(dev) && !enable_irq_wake(kb->client->irq))
++	disable_irq(irq);
++	if (kb->masked) {
++		enable_irq(irq);
++		return -EBUSY;
++	}
++	kb->suspended = true;
++	enable_irq(irq);
++
++	if (device_may_wakeup(dev) && !enable_irq_wake(irq))
+ 		kb->irq_wake = true;
+ 
+ 	return 0;
+@@ -420,12 +447,20 @@ static int pro1x_kbd_suspend(struct device *dev)
+ static int pro1x_kbd_resume(struct device *dev)
+ {
+ 	struct pro1x_kbd *kb = dev_get_drvdata(dev);
++	int irq = kb->client->irq;
+ 
+ 	if (kb->irq_wake) {
+-		disable_irq_wake(kb->client->irq);
++		disable_irq_wake(irq);
+ 		kb->irq_wake = false;
+ 	}
+ 
++	disable_irq(irq);
++	kb->suspended = false;
++	/* A key pressed while suspended (the wakeup key) masked the IRQ. */
++	if (kb->masked)
++		schedule_delayed_work(&kb->work, 0);
++	enable_irq(irq);
++
+ 	return 0;
+ }
+ 
+-- 
+2.56.0
+

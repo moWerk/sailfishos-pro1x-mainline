@@ -1,0 +1,32 @@
+From 9df763c9c138d81a3ba9c82d77e96f9c01bda68c Mon Sep 17 00:00:00 2001
+From: Mathieu <mlaparie@users.noreply.github.com>
+Date: Mon, 23 Nov 2026 15:14:52 +0100
+Subject: [PATCH 80/81] linux-pro1x: the rear camera module's EEPROM (at24)
+
+From kabouik's Guix port (fxtec-pro1x-guix 2ec3d87, device/kernel/patches/pro1x-camera-eeprom.patch), applied unchanged.
+---
+ arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts b/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
+index 350b9519a..8e36b6440 100644
+--- a/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
++++ b/arch/arm64/boot/dts/qcom/sm6115-fxtec-pro1x.dts
+@@ -1553,6 +1553,14 @@ rear_lens: lens@c {
+ 		vio-supply = <&vreg_l7p>;
+ 	};
+ 
++	/* rear module EEPROM: per-unit calibration (lens shading, AWB, AF) */
++	rear_eeprom: eeprom@50 {
++		compatible = "atmel,24c64";
++		reg = <0x50>;
++		read-only;
++		vcc-supply = <&vreg_l7p>;
++	};
++
+ 	rear_camera: camera@10 {
+ 		compatible = "sony,imx582";
+ 		reg = <0x10>;
+-- 
+2.56.0
+
