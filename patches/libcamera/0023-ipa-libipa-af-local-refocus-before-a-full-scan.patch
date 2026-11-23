@@ -1,0 +1,126 @@
+From 9d2abea81c6f35c0db0ae8b6c4d10dc47c00142d Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Mon, 23 Nov 2026 21:17:17 +0100
+Subject: [PATCH 23/24] ipa: libipa: af: local refocus before a full scan
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A lost focus restarted the scan at lens position 0: the picture went
+soft and took the whole coarse and fine scan to come back, even when the
+scene had only changed its brightness. With the "localRefocus" parameter
+the scan first looks around the current position (fine steps, the fine
+range or three steps either side); only when the best value sits at the
+low edge or the scan runs past the top does a full scan follow.
+
+On the Pro1-X, chart brightness changed twice in 30 s: every refocus
+stayed local (465..577 around 513, about 1 s each), where the full scans
+went back to 64.
+
+Disclosure: LLMGD-2 · origin O1 (the model measured the camera on a test chart overnight with the author's go, wrote and tested the change on the device)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=libcamera; graded-by=claude-opus-5-5; retrieval=none
+---
+ src/ipa/libipa/af.cpp | 42 ++++++++++++++++++++++++++++++++++++++++++
+ src/ipa/libipa/af.h   |  5 +++++
+ 2 files changed, 47 insertions(+)
+
+diff --git a/src/ipa/libipa/af.cpp b/src/ipa/libipa/af.cpp
+index 77dbe439..fea5d0ba 100644
+--- a/src/ipa/libipa/af.cpp
++++ b/src/ipa/libipa/af.cpp
+@@ -7,6 +7,8 @@
+ 
+ #include "af.h"
+ 
++#include <algorithm>
++
+ #include <linux/v4l2-controls.h>
+ 
+ namespace libcamera {
+@@ -105,6 +107,21 @@ void AfAlgorithm::afFineScan(af::ActiveState &state)
+ 		return;
+ 
+ 	if (afScan(state, params_.fineStep)) {
++		if (localScan_) {
++			localScan_ = false;
++			/*
++			 * The best position at the low edge of the window, or the
++			 * scan running past its top: the peak is outside, the
++			 * subject moved. Scan the whole range.
++			 */
++			if ((localStart_ > 0 && state.focus == localStart_) ||
++			    focus_ > maxStep_) {
++				LOG(Af, Debug) << "Local refocus missed the peak, full scan";
++				restart(state);
++				return;
++			}
++			LOG(Af, Debug) << "Local refocus at " << state.focus;
++		}
+ 		state.stable = true;
+ 		fineCompleted_ = true;
+ 	}
+@@ -121,6 +138,30 @@ void AfAlgorithm::afReset(af::ActiveState &state)
+ 	if (afNeedIgnoreFrame())
+ 		return;
+ 
++	if (params_.localRefocus && state.focus > 0) {
++		/*
++		 * Look around the current position first: a scene that only
++		 * changed its brightness or moved a little keeps its focus,
++		 * without a full scan through the whole lens range.
++		 */
++		const uint32_t current = state.focus;
++		const uint32_t window = std::max(params_.fineStep * 3,
++						 static_cast<uint32_t>(current * params_.fineRange));
++		localStart_ = current > window ? current - window : 0;
++		focus_ = localStart_;
++		state.focus = focus_;
++		maxStep_ = std::min(current + window, initMaxStep_);
++		state.maxVariance = 0;
++		state.stable = false;
++		previousVariance_ = 0.0;
++		coarseCompleted_ = true;
++		fineCompleted_ = false;
++		localScan_ = true;
++		ignoreCounter_ = params_.ignoreFrames;
++		LOG(Af, Debug) << "Local refocus " << localStart_ << ".." << maxStep_;
++		return;
++	}
++
+ 	state.maxVariance = 0;
+ 	state.focus = 0;
+ 	focus_ = 0;
+@@ -201,6 +242,7 @@ bool AfAlgorithm::afScan(af::ActiveState &state, int min_step)
+  */
+ void AfAlgorithm::restart(af::ActiveState &state)
+ {
++	localScan_ = false;
+ 	state.maxVariance = 0;
+ 	state.focus = 0;
+ 	focus_ = 0;
+diff --git a/src/ipa/libipa/af.h b/src/ipa/libipa/af.h
+index 912b8fb9..180ef82d 100644
+--- a/src/ipa/libipa/af.h
++++ b/src/ipa/libipa/af.h
+@@ -32,6 +32,8 @@ struct Parameters {
+ 	double fineRange = 0.05;
+ 	double maxChange = 0.5;
+ 	uint32_t ignoreFrames = 10;
++	/* Refocus by a fine scan around the current position before a full scan */
++	bool localRefocus = false;
+ };
+ 
+ } /* namespace af */
+@@ -75,6 +77,9 @@ private:
+ 	bool coarseCompleted_;
+ 	/* If the fine scan completes, it is set to true. */
+ 	bool fineCompleted_;
++	/* A local refocus scan is running, from localStart_ */
++	bool localScan_ = false;
++	uint32_t localStart_ = 0;
+ 	/* Scan parameters */
+ 	af::Parameters params_;
+ };
+-- 
+2.56.0
+

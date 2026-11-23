@@ -1,0 +1,186 @@
+From ae1135741c54d34f8594477a956f3b79fc0d7bda Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Mon, 23 Nov 2026 21:17:17 +0100
+Subject: [PATCH 20/24] ipa: simple: agc: tunable target and speed, exposure
+ before gain
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Measured on the Pro1-X (IMX582, a test chart on a laptop panel, CIEDE2000
+against the chart's sRGB values, 2026-11-23):
+
+- The mean sample value target of 2.5 bins sits on the linear histogram:
+  about 50 % linear, sRGB 186 for a mid grey; the chart's 128 grey came out
+  at 139-181. Tuning key "target" (default 2.5); 1.6 puts it at 126.
+- The step is relative to the target, so a lower target does not slow the
+  loop (1.6 left a dark start at most 0.6 below it: 2.4 % per step).
+- With nearly everything in the lowest or highest bin the MSV no longer
+  tells how far off the exposure is: take the largest step.
+- Tuning keys "speed" and "maxStep" (defaults 0.04 and 0.15).
+- The up path raised the exposure first, the down path lowered the gain
+  first, so a raised gain stayed while the exposure time sat far below its
+  limit (seen: 1156 of 4829 lines at gain 7.3). Tuning key
+  "preferExposure" moves gain into exposure time at the same total.
+- One update per four frames by frame distance, whichever frames carry
+  stats (the next patch gives large frames stats every second frame).
+
+From a dark start the exposure now settles in about 3 s (speed 0.12,
+maxStep 0.4) at gain 1.9, where it was still rising after 30 s.
+
+Disclosure: LLMGD-2 · origin O1 (the model measured the camera on a test chart overnight with the author's go, wrote and tested the change on the device)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=libcamera; graded-by=claude-opus-5-5; retrieval=none
+---
+ src/ipa/simple/algorithms/agc.cpp | 62 ++++++++++++++++++++++++++++---
+ src/ipa/simple/algorithms/agc.h   | 12 ++++++
+ 2 files changed, 68 insertions(+), 6 deletions(-)
+
+diff --git a/src/ipa/simple/algorithms/agc.cpp b/src/ipa/simple/algorithms/agc.cpp
+index c00710ac..8f5150af 100644
+--- a/src/ipa/simple/algorithms/agc.cpp
++++ b/src/ipa/simple/algorithms/agc.cpp
+@@ -65,8 +65,17 @@ Agc::Agc()
+ {
+ }
+ 
+-int Agc::init(IPAContext &context, [[maybe_unused]] const ValueNode &tuningData)
++int Agc::init(IPAContext &context, const ValueNode &tuningData)
+ {
++	/*
++	 * Mean sample value target in histogram bins (1..5) of the linear
++	 * histogram. The default 2.5 puts a mid grey near 50 % linear, sRGB
++	 * about 186; a sensor with gamma-encoded output wants less.
++	 */
++	target_ = tuningData["target"].get<double>(kExposureOptimal);
++	rebalance_ = tuningData["preferExposure"].get<bool>(false);
++	speed_ = tuningData["speed"].get<float>(kExpProportionalGain);
++	maxStep_ = tuningData["maxStep"].get<float>(kExpMaxStep);
+ 	context.ctrlMap[&controls::AnalogueGainMode] =
+ 		ControlInfo(controls::AnalogueGainModeValues);
+ 	context.ctrlMap[&controls::ExposureTimeMode] =
+@@ -139,6 +148,26 @@ void Agc::updateExposure(IPAContext &context, IPAFrameContext &frameContext,
+ 	int32_t &exposure = frameContext.sensor.exposure;
+ 	double &again = frameContext.sensor.gain;
+ 
++	/*
++	 * Prefer exposure time over gain: the up path raises the exposure
++	 * first, the down path lowers the gain first, so a gain once raised
++	 * stayed while the exposure time sat far below its limit (seen: 1156
++	 * of 4829 lines at gain 7.3). Move gain into exposure time at the
++	 * same total, then correct the brightness.
++	 */
++	if (rebalance_ && again > context.configuration.agc.againMin &&
++	    exposure < context.configuration.agc.exposureMaxAuto) {
++		const double total = exposure * again;
++		const int32_t next = std::min<int32_t>(context.configuration.agc.exposureMaxAuto,
++						       static_cast<int32_t>(total / context.configuration.agc.againMin));
++		if (next > exposure) {
++			again = std::max(total / next, context.configuration.agc.againMin);
++			exposure = next;
++			context.activeState.agc.exposure = exposure;
++			context.activeState.agc.again = again;
++		}
++	}
++
+ 	double error = target - exposureMSV;
+ 
+ 	if (std::abs(error) <= kExposureSatisfactory)
+@@ -149,8 +178,21 @@ void Agc::updateExposure(IPAContext &context, IPAFrameContext &frameContext,
+ 	 * determines the direction: positive error means too dark (increase),
+ 	 * negative means too bright (decrease).
+ 	 */
+-	float step = std::clamp(static_cast<float>(error) * kExpProportionalGain,
+-				-kExpMaxStep, kExpMaxStep);
++	/*
++	 * The error relative to the target, scaled to the default target: a
++	 * lower target must not make the steps smaller (target 1.6 left a dark
++	 * start at most 0.6 below it, 2.4 % per step).
++	 */
++	float step = std::clamp(static_cast<float>(error / target * kExposureOptimal) * speed_,
++				-maxStep_, maxStep_);
++	/*
++	 * Nearly everything in the lowest or highest bin: the MSV no longer
++	 * tells how far off the exposure is, so take the largest step.
++	 */
++	if (exposureMSV < 1.1)
++		step = maxStep_;
++	else if (exposureMSV > kExposureBinsCount - 0.1)
++		step = -maxStep_;
+ 	float factor = 1.0f + step;
+ 
+ 	if (factor > 1.0f) {
+@@ -194,7 +236,7 @@ void Agc::updateExposure(IPAContext &context, IPAFrameContext &frameContext,
+ }
+ 
+ void Agc::process(IPAContext &context,
+-		  [[maybe_unused]] const uint32_t frame,
++		  const uint32_t frame,
+ 		  IPAFrameContext &frameContext,
+ 		  const SwIspStats *stats,
+ 		  ControlList &metadata)
+@@ -214,7 +256,13 @@ void Agc::process(IPAContext &context,
+ 		context.activeState.agc.valid = true;
+ 	}
+ 
+-	if (!stats->valid) {
++	/*
++	 * Large frames get stats every second frame (for the autofocus); an
++	 * exposure change still takes up to 3 frames to show, so act on every
++	 * fourth only.
++	 */
++	const bool due = !lastFrame_ || frame - *lastFrame_ >= 4 || frame < *lastFrame_;
++	if (!stats->valid || !due) {
+ 		/*
+ 		 * Use the new exposure and gain values calculated the last time
+ 		 * there were valid stats.
+@@ -225,6 +273,8 @@ void Agc::process(IPAContext &context,
+ 		return;
+ 	}
+ 
++	lastFrame_ = frame;
++
+ 	/*
+ 	 * Calculate Mean Sample Value (MSV) according to formula from:
+ 	 * https://www.araa.asn.au/acra/acra2007/papers/paper84final.pdf
+@@ -264,7 +314,7 @@ void Agc::process(IPAContext &context,
+ 	 * EV compensation moves the target of the mean sample value (bins 1..5):
+ 	 * half a bin per stop, kept inside the histogram.
+ 	 */
+-	const double target = std::clamp(kExposureOptimal + 0.5 * context.activeState.agc.exposureValue,
++	const double target = std::clamp(target_ + 0.5 * context.activeState.agc.exposureValue,
+ 					 1.2, kExposureBinsCount - 0.2);
+ 	auto &agc = context.activeState.agc;
+ 	if (!(agc.manualGain && agc.manualExposure))
+diff --git a/src/ipa/simple/algorithms/agc.h b/src/ipa/simple/algorithms/agc.h
+index 5e8b90c8..90d841eb 100644
+--- a/src/ipa/simple/algorithms/agc.h
++++ b/src/ipa/simple/algorithms/agc.h
+@@ -7,6 +7,8 @@
+ 
+ #pragma once
+ 
++#include <optional>
++
+ #include "algorithm.h"
+ 
+ namespace libcamera {
+@@ -33,6 +35,16 @@ private:
+ 	void updateExposure(IPAContext &context, IPAFrameContext &frameContext,
+ 			    double exposureMSV, double target);
+ 	void applyManual(IPAContext &context, IPAFrameContext &frameContext);
++
++	/* Mean sample value target, histogram bins 1..5 (tuning "target") */
++	double target_ = 2.5;
++	/* Move gain into exposure time when the latter has room (tuning "preferExposure") */
++	bool rebalance_ = false;
++	/* Proportional gain and largest step per update (tuning "speed", "maxStep") */
++	float speed_ = 0.04f;
++	float maxStep_ = 0.15f;
++	/* Frame of the last exposure update: one per 4 frames, whatever carries stats */
++	std::optional<uint32_t> lastFrame_;
+ };
+ 
+ } /* namespace ipa::soft::algorithms */
+-- 
+2.56.0
+

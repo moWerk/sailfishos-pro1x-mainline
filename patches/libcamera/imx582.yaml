@@ -1,24 +1,57 @@
 # libcamera 0.7 software ISP tuning for the Pro1X imx582.
-# Only BlackLevel and Ccm read tuning data; Awb, Adjust and Agc use fixed constants.
+# Measured 2026-11-23 on a ColorChecker/grey ramp/Siemens star chart (CIEDE2000, flat-field corrected):
+# this file with libcamera patches 0020-0024 took the colour error from 8.7 to 3.7, chroma from 0.50
+# to 0.93 of the reference, a 128 grey from 139 to 126; the exposure settles from dark in ~3 s.
 version: 1
 algorithms:
   - BlackLevel:
       # 16-bit value, libcamera uses it >> 8. 4096 = 16/255, matching the sensor helper.
       blackLevel: 4096
   - Awb:
-  # Needs a calibrated matrix to be useful; add per colour temperature (K) rows:
-  # - Ccm:
-  #     ccms:
-  #       - ct: 6500
-  #         ccm: [ 1, 0, 0,  0, 1, 0,  0, 0, 1 ]
+  # Colour correction per colour temperature: Qualcomm's cc13 for this module from the stock
+  # vendor tuning (com.qti.tuned.lce_imx582.bin), as kabouik's Guix port extracted it. Without
+  # it the colours had half their saturation. Ccm must come before Adjust.
+  - Ccm:
+      ccms:
+        - ct: 2275
+          ccm: [ 1.7678, -0.5485, -0.2194,
+                -0.4910,  1.4456,  0.0454,
+                -0.4216, -0.8363,  2.2579 ]
+        - ct: 3025
+          ccm: [ 1.7084, -0.6534, -0.0551,
+                -0.2776,  1.2349,  0.0427,
+                -0.1214, -1.0338,  2.1553 ]
+        - ct: 4100
+          ccm: [ 1.5919, -0.7385,  0.1466,
+                -0.2534,  1.3775, -0.1241,
+                 0.1252, -0.9807,  1.8555 ]
+        - ct: 5150
+          ccm: [ 1.3496, -0.2878, -0.0618,
+                -0.1292,  1.1941, -0.0650,
+                 0.0652, -0.6676,  1.6024 ]
+        - ct: 6350
+          ccm: [ 1.3727, -0.3210, -0.0517,
+                -0.0971,  1.2135, -0.1164,
+                 0.0829, -0.6625,  1.5796 ]
   - Adjust:
+      # Default contrast (patch 0022): 1.1 best on the chart, 1.2 crushes mid tones.
+      contrast: 1.1
   - Agc:
+      # Patch 0020. Target in bins (1..5) of the linear histogram: 2.5 put a 128 grey at 139-181,
+      # 1.6 at 126.
+      target: 1.6
+      # Settle from a dark start in ~3 s (0.04/0.15: still rising after 30 s).
+      speed: 0.12
+      maxStep: 0.4
+      # Gain only once the exposure time is at its limit (was: gain 7.3 at a quarter of it).
+      preferExposure: true
   # Contrast autofocus (libipa hill climbing on the software ISP sharpness value); the
   # imx582 has the dw9800 lens, the s5k4h7 is fixed focus.
   - Af:
       # Measured on the Pro1-X (2026-10-25): the sharpness peak is about +-40 codes wide
       # (near object: 729 / 951 / 765 at 420 / 450 / 480), so coarse 64 and fine 16
-      # steps are enough. Stats come every 4th frame; 2 ignored measurements cover the
+      # steps are enough. Stats come every 4th frame (every 2nd at 7 MP and more, patch
+      # 0021); 2 ignored measurements cover the
       # lens settling and debounce a refocus.
       coarseStep: 64
       fineStep: 16
@@ -27,3 +60,7 @@ algorithms:
       # A far-focused frame of a near object loses less than the libipa default 50% of
       # sharpness, which left refocus waiting; noise between measurements is 1-3%.
       maxChange: 0.3
+      # Patch 0024: sharpness divided by the squared brightness, so an exposure change no longer
+      # reads as lost focus; a refocus looks around the current lens position first.
+      normaliseVariance: true
+      localRefocus: true

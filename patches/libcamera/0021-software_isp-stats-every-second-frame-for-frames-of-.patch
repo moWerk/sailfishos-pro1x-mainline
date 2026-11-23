@@ -1,0 +1,82 @@
+From c4f42e32fc1061e5906c6330b01bda1550354acc Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Mon, 23 Nov 2026 21:17:17 +0100
+Subject: [PATCH 21/24] software_isp: stats every second frame for frames of 7
+ MP or more
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The photo modes run at about 12 fps; with stats every fourth frame the
+autofocus got three measurements a second. Frames of 7 MP or more get
+stats every second frame; the exposure still acts on every fourth
+(previous patch). Idea after the Guix port's patch 0028 (kabouik).
+The first focus after a start: about 5 s -> 3 s on the Pro1-X.
+
+Disclosure: LLMGD-2 · origin O1 (the model measured the camera on a test chart overnight with the author's go, wrote and tested the change on the device)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=libcamera; graded-by=claude-opus-5-5; retrieval=none
+---
+ include/libcamera/internal/software_isp/swstats_cpu.h | 10 ++++++++--
+ src/libcamera/software_isp/swstats_cpu.cpp            |  4 +++-
+ 2 files changed, 11 insertions(+), 3 deletions(-)
+
+diff --git a/include/libcamera/internal/software_isp/swstats_cpu.h b/include/libcamera/internal/software_isp/swstats_cpu.h
+index 0f4d1ac3..ce370e6a 100644
+--- a/include/libcamera/internal/software_isp/swstats_cpu.h
++++ b/include/libcamera/internal/software_isp/swstats_cpu.h
+@@ -57,7 +57,7 @@ public:
+ 
+ 	void processLine0(uint32_t frame, unsigned int y, const uint8_t *src[], unsigned int statsBufferIndex = 0)
+ 	{
+-		if (frame % kStatPerNumFrames)
++		if (frame % statPerNumFrames_)
+ 			return;
+ 
+ 		if ((y & ySkipMask_) || y < static_cast<unsigned int>(window_.y) ||
+@@ -71,7 +71,7 @@ public:
+ 
+ 	void processLine2(uint32_t frame, unsigned int y, const uint8_t *src[], unsigned int statsBufferIndex = 0)
+ 	{
+-		if (frame % kStatPerNumFrames)
++		if (frame % statPerNumFrames_)
+ 			return;
+ 
+ 		if ((y & ySkipMask_) || y < static_cast<unsigned int>(window_.y) ||
+@@ -94,6 +94,12 @@ private:
+ 	 * exposure changes have been applied.
+ 	 */
+ 	static constexpr uint32_t kStatPerNumFrames = 4;
++	/*
++	 * Frames of 7 MP or more (photo modes, 12-15 fps) get stats every
++	 * second frame so the autofocus gets twice the measurements; the
++	 * exposure still acts on every kStatPerNumFrames-th (ipa simple agc).
++	 */
++	uint32_t statPerNumFrames_ = kStatPerNumFrames;
+ 
+ 	int setupStandardBayerOrder(BayerFormat::Order order);
+ 	/* Bayer 8 bpp unpacked */
+diff --git a/src/libcamera/software_isp/swstats_cpu.cpp b/src/libcamera/software_isp/swstats_cpu.cpp
+index 1a10dc80..9b7f6765 100644
+--- a/src/libcamera/software_isp/swstats_cpu.cpp
++++ b/src/libcamera/software_isp/swstats_cpu.cpp
+@@ -520,6 +520,8 @@ int SwStatsCpu::configure(const StreamConfiguration &inputCfg, unsigned int stat
+ {
+ 	stride_ = inputCfg.stride;
+ 	stats_.resize(statsBufferCount);
++	statPerNumFrames_ = inputCfg.size.width * inputCfg.size.height >= 7000000
++				    ? 2 : kStatPerNumFrames;
+ 	sharpness_ = nullptr;
+ 
+ 	BayerFormat bayerFormat =
+@@ -733,7 +735,7 @@ void SwStatsCpu::processFrame(uint32_t frame, uint32_t bufferId, MappedFrameBuff
+  */
+ bool SwStatsCpu::updating(uint32_t frame)
+ {
+-	return frame % kStatPerNumFrames == 0;
++	return frame % statPerNumFrames_ == 0;
+ }
+ 
+ } /* namespace libcamera */
+-- 
+2.56.0
+

@@ -1,0 +1,76 @@
+From d351716ace8912117bd14c4b0777ad3eb8638ea1 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Mon, 23 Nov 2026 21:17:17 +0100
+Subject: [PATCH 22/24] ipa: simple: adjust: default contrast from the tuning
+ file
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Tuning key "contrast" (default 1.0) for applications that set none.
+On the Pro1-X IMX582 1.1 took the chart's colour error from 4.9 to 3.7
+(CIEDE2000, flat-field corrected) and pulled the lifted blacks down;
+1.2 and more crushed mid tones.
+
+Disclosure: LLMGD-2 · origin O1 (the model measured the camera on a test chart overnight with the author's go, wrote and tested the change on the device)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=libcamera; graded-by=claude-opus-5-5; retrieval=none
+---
+ src/ipa/simple/algorithms/adjust.cpp | 10 ++++++----
+ src/ipa/simple/algorithms/adjust.h   |  2 ++
+ 2 files changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/src/ipa/simple/algorithms/adjust.cpp b/src/ipa/simple/algorithms/adjust.cpp
+index 8bf39c4c..8bdcfb62 100644
+--- a/src/ipa/simple/algorithms/adjust.cpp
++++ b/src/ipa/simple/algorithms/adjust.cpp
+@@ -24,12 +24,14 @@ constexpr float kDefaultSaturation = 1.0f;
+ 
+ LOG_DEFINE_CATEGORY(IPASoftAdjust)
+ 
+-int Adjust::init(IPAContext &context, [[maybe_unused]] const ValueNode &tuningData)
++int Adjust::init(IPAContext &context, const ValueNode &tuningData)
+ {
++	/* Contrast applied when the application sets none (tuning "contrast") */
++	defaultContrast_ = tuningData["contrast"].get<float>(kDefaultContrast);
+ 	context.ctrlMap[&controls::Gamma] =
+ 		ControlInfo(0.1f, 10.0f, kDefaultGamma);
+ 	context.ctrlMap[&controls::Contrast] =
+-		ControlInfo(0.0f, 2.0f, kDefaultContrast);
++		ControlInfo(0.0f, 2.0f, defaultContrast_);
+ 	if (context.ccmEnabled)
+ 		context.ctrlMap[&controls::Saturation] =
+ 			ControlInfo(0.0f, 2.0f, kDefaultSaturation);
+@@ -107,7 +109,7 @@ void Adjust::prepare(IPAContext &context,
+ 	}
+ 
+ 	params->gamma = 1.0 / context.activeState.knobs.gamma;
+-	const float contrast = context.activeState.knobs.contrast.value_or(kDefaultContrast);
++	const float contrast = context.activeState.knobs.contrast.value_or(defaultContrast_);
+ 	params->contrastExp = tan(std::clamp(contrast * M_PI_4, 0.0, M_PI_2 - 0.00001));
+ }
+ 
+@@ -121,7 +123,7 @@ void Adjust::process([[maybe_unused]] IPAContext &context,
+ 	metadata.set(controls::Gamma, gamma);
+ 
+ 	const auto &contrast = frameContext.contrast;
+-	metadata.set(controls::Contrast, contrast.value_or(kDefaultContrast));
++	metadata.set(controls::Contrast, contrast.value_or(defaultContrast_));
+ 
+ 	const auto &saturation = frameContext.saturation;
+ 	metadata.set(controls::Saturation, saturation.value_or(kDefaultSaturation));
+diff --git a/src/ipa/simple/algorithms/adjust.h b/src/ipa/simple/algorithms/adjust.h
+index 49c1f26c..65949cb7 100644
+--- a/src/ipa/simple/algorithms/adjust.h
++++ b/src/ipa/simple/algorithms/adjust.h
+@@ -43,6 +43,8 @@ public:
+ 
+ private:
+ 	void applySaturation(Matrix<float, 3, 3> &ccm, float saturation);
++
++	float defaultContrast_ = 1.0f;
+ };
+ 
+ } /* namespace ipa::soft::algorithms */
+-- 
+2.56.0
+

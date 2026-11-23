@@ -1,0 +1,86 @@
+From 20847a8f546ca021cfa6a5acfd14311f90d10a91 Mon Sep 17 00:00:00 2001
+From: moWerk <mo@mowerk.net>
+Date: Mon, 23 Nov 2026 21:17:17 +0100
+Subject: [PATCH 24/24] ipa: simple: af: brightness-normalised sharpness, local
+ refocus
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The sharpness value is a variance and grows with the square of the
+brightness: an exposure change of 15 % moves it by about 30 %, the
+refocus threshold, so the autofocus restarted on an unchanged scene
+(the "it resets although it was sharp" of daily use). Tuning key
+"normaliseVariance" divides it by the squared mean luminance (scaled by
+1e6: libipa compares integer differences). Tuning key "localRefocus"
+passes the libipa option of the previous patch.
+
+Pro1-X, chart brightness changed twice in 30 s: 3 full rescans without,
+1-2 with normalisation; with local refocus as well the focus stays.
+
+Disclosure: LLMGD-2 · origin O1 (the model measured the camera on a test chart overnight with the author's go, wrote and tested the change on the device)
+LLMGD: v0.3; assurance=A2; flags=T; origin=O1; origin_headline=O1; scope=libcamera; graded-by=claude-opus-5-5; retrieval=none
+---
+ src/ipa/simple/algorithms/af.cpp | 25 ++++++++++++++++++++++++-
+ src/ipa/simple/algorithms/af.h   |  2 ++
+ 2 files changed, 26 insertions(+), 1 deletion(-)
+
+diff --git a/src/ipa/simple/algorithms/af.cpp b/src/ipa/simple/algorithms/af.cpp
+index c7c5ee13..76bab17b 100644
+--- a/src/ipa/simple/algorithms/af.cpp
++++ b/src/ipa/simple/algorithms/af.cpp
+@@ -28,6 +28,14 @@ int Af::init(IPAContext &context, const ValueNode &tuningData)
+ 	params.fineRange = tuningData["fineRange"].get<double>(params.fineRange);
+ 	params.maxChange = tuningData["maxChange"].get<double>(params.maxChange);
+ 	params.ignoreFrames = tuningData["ignoreFrames"].get<uint32_t>(params.ignoreFrames);
++	/*
++	 * The sharpness value is a variance and grows with the square of the
++	 * brightness: an exposure change of 15 % moves it by about 30 %, which
++	 * restarted the scan on an unchanged scene. Normalised it follows
++	 * focus only.
++	 */
++	normalise_ = tuningData["normaliseVariance"].get<bool>(false);
++	params.localRefocus = tuningData["localRefocus"].get<bool>(false);
+ 	afAlgo_.setParameters(params);
+ 
+ 	/* Informs that lens controls can get focus data */
+@@ -88,7 +96,22 @@ void Af::process(IPAContext &context,
+ 	if (!stats->valid || !stats->varianceSamples)
+ 		return;
+ 
+-	const double variance = stats->variance;
++	double variance = stats->variance;
++	if (normalise_) {
++		/* Mean luminance (0..255) from the histogram */
++		const auto &h = stats->yHistogram;
++		const double binWidth = 256.0 / SwIspStats::kYHistogramSize;
++		double n = 0, sum = 0;
++		for (unsigned int i = 0; i < SwIspStats::kYHistogramSize; i++) {
++			n += h[i];
++			sum += h[i] * (i + 0.5) * binWidth;
++		}
++		const double mean = n ? sum / n : 0;
++		if (mean < 4)
++			return;
++		/* libipa compares integer differences: keep it in the thousands */
++		variance = variance / (mean * mean) * 1000000.0;
++	}
+ 	LOG(IPASoftAf, Debug) << "Focus stats: " << variance;
+ 	if (!(mode_ == controls::AfModeAuto && context.activeState.af.stable))
+ 		afAlgo_.process(context.activeState.af, variance);
+diff --git a/src/ipa/simple/algorithms/af.h b/src/ipa/simple/algorithms/af.h
+index 8b6c4db6..6bc4c408 100644
+--- a/src/ipa/simple/algorithms/af.h
++++ b/src/ipa/simple/algorithms/af.h
+@@ -41,6 +41,8 @@ private:
+ 	Rectangle window_;
+ 	/* AfModeAuto holds a found focus until the next window or mode change */
+ 	int32_t mode_ = controls::AfModeContinuous;
++	/* Divide the sharpness by the squared mean brightness (tuning "normaliseVariance") */
++	bool normalise_ = false;
+ };
+ 
+ } /* namespace ipa::soft::algorithms */
+-- 
+2.56.0
+
