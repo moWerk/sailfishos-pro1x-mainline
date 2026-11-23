@@ -27,8 +27,10 @@ mkdir -p "$out"
 work=$(mktemp -d "$out/.work.XXXXXX")
 loop=
 cleanup() {
+  rc=$?
   [ -n "$loop" ] && { lvm vgchange -a n --devices "$loop" sailfish >/dev/null 2>&1 || :; losetup -d "$loop" || :; }
   rm -rf "$work"
+  exit $rc
 }
 trap cleanup EXIT
 

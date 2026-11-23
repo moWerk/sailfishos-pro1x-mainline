@@ -26,6 +26,9 @@ add hotfixes          https://releases.jolla.com/releases/$V/hotfixes/aarch64/
 add adaptation-common https://releases.jolla.com/releases/$V/jolla-hw/adaptation-common/aarch64/
 add apps              https://releases.jolla.com/jolla-apps/$V/aarch64/
 add jolla-5.1         https://releases.jolla.com/releases/5.1.0.11/jolla/aarch64/
+# Lower priority than the rest (higher number): equal versions come from 5.2, only the pinned
+# 5.1 builds (held-back audio modules) from here. Same-version files are not all on both media.
+zypper --root $R -n mr -p 120 jolla-5.1 >/dev/null
 add native-common     https://repo.sailfishos.org/obs/nemo:/devel:/hw:/native-common/sailfish_latest_aarch64/
 add dontbeevil        https://repo.sailfishos.org/obs/nemo:/devel:/hw:/pine:/dontbeevil/sailfish_latest_aarch64/
 zypper --root $R -n --gpg-auto-import-keys ref
