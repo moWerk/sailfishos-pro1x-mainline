@@ -1,0 +1,13 @@
+[Unit]
+# mce wakes the display only for Esc on a slide keyboard; this does it for every key of the
+# Pro1-X keyboard (display on, lock screen stays).
+Description=Wake the display on any key of the slide keyboard
+After=mce.service
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/bin/droid/qx1050-kbd-wake.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
