@@ -31,7 +31,7 @@ make -s O=$b olddefconfig 2>&1 | grep -v "override: reassigning" || true
 fail=0
 grep -hE "^(CONFIG_|# CONFIG_[A-Za-z0-9_]+ is not set)" /cfg/pro1x.fragment /cfg/sfos.fragment | while IFS= read -r l; do
     case "$l" in
-    "# CONFIG_"*) o=${l#\# }; o=${o%% *}; grep -q "^$o=" $b/.config && echo "MISMATCH: $o should be unset";;
+    "# CONFIG_"*) o=${l#\# }; o=${o%% *}; if grep -q "^$o=" $b/.config; then echo "MISMATCH: $o should be unset"; fi;;
     *) grep -qxF "$l" $b/.config || echo "MISMATCH: wanted $l, got $(grep "^${l%%=*}=" $b/.config || echo unset)";;
     esac
 done > /out/config-check.txt
