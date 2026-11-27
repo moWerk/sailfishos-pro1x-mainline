@@ -9,6 +9,15 @@ pidfile="${XDG_RUNTIME_DIR:-/tmp}/pro1x-voice-call.pid"
 
 case "${1:-run}" in
 start)
+  # PulseAudio also enables the verb when it probes the card at startup, with no call:
+  # start only when ofono has a call. Fail open: if ofono or D-Bus does not answer, start as
+  # before, so a call never loses its audio because of this check.
+  modem=$(dbus-send --system --print-reply --dest=org.ofono / org.ofono.Manager.GetModems 2>/dev/null |
+    sed -n 's/.*object path "\(\/[^"]*\)".*/\1/p' | head -1)
+  if [ -n "$modem" ] && calls=$(dbus-send --system --print-reply --dest=org.ofono "$modem" \
+       org.ofono.VoiceCallManager.GetCalls 2>/dev/null) && ! printf '%s' "$calls" | grep -q 'object path'; then
+    exit 0
+  fi
     setsid pro1x-voice-call run >"${XDG_RUNTIME_DIR:-/tmp}/pro1x-voice-call.log" 2>&1 </dev/null &  # busybox setsid has no -f
   exit 0
   ;;
